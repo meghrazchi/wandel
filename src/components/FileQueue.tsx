@@ -88,6 +88,7 @@ interface FileQueueProps {
   onCompressPdf: (item: QueueItem) => void;
   onRotatePdf: (item: QueueItem) => void;
   onReorderPdf: (item: QueueItem) => void;
+  onOrganizePdf: (item: QueueItem) => void;
   onStampPdf: (item: QueueItem) => void;
   onNumberPdf: (item: QueueItem) => void;
   onExtractPdfImages: (item: QueueItem) => void;
@@ -135,6 +136,7 @@ export function FileQueue({
   onCompressPdf,
   onRotatePdf,
   onReorderPdf,
+  onOrganizePdf,
   onStampPdf,
   onNumberPdf,
   onExtractPdfImages,
@@ -688,6 +690,7 @@ export function FileQueue({
 
                           {item.mediaKind === "pdf" && (
                             <>
+                              <MenuRow icon={<LayoutGrid className="h-3.5 w-3.5 text-indigo-500" />} label="Visual Page Organizer" onClick={() => { setOpenRowMenuId(null); onOrganizePdf(item); }} />
                               <MenuRow icon={<RotateCw className="h-3.5 w-3.5 text-amber-500" />} label="Rotate Pages 90° CW" onClick={() => { setOpenRowMenuId(null); onRotatePdf(item); }} />
                               <MenuRow icon={<ArrowUpDown className="h-3.5 w-3.5 text-indigo-500" />} label="Reorder / Extract Pages" onClick={() => { setOpenRowMenuId(null); onReorderPdf(item); }} />
                               <MenuRow icon={<Stamp className="h-3.5 w-3.5 text-red-500" />} label="Stamp Watermark Text" onClick={() => { setOpenRowMenuId(null); onStampPdf(item); }} />

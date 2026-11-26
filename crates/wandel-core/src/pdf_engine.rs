@@ -1167,6 +1167,186 @@ pub fn scrub_pdf_metadata(input: &Path, output: &Path) -> Result<u64> {
     Ok(size)
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfPageThumb {
+    pub page: usize,
+    pub width: u32,
+    pub height: u32,
+    pub thumbnail_data_url: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfPagePlan {
+    /// 1-based source page number.
+    pub page: usize,
+    /// Additional clockwise rotation in degrees (multiple of 90).
+    #[serde(default)]
+    pub rotation_delta: i32,
+}
+
+/// Renders lightweight JPEG data-URL thumbnails for every page of a PDF in parallel via `hayro` + `rayon`.
+pub fn render_pdf_thumbnails(input: &Path, max_edge_px: u32) -> Result<Vec<PdfPageThumb>> {
+    use base64::Engine;
+
+    let bytes = Arc::new(std::fs::read(input)?);
+    let pdf = HayroPdf::new(Arc::clone(&bytes))
+        .map_err(|e| WandelError::ImageDecode(format!("Failed to parse PDF: {:?}", e)))?;
+    let total_pages = pdf.pages().len();
+    if total_pages == 0 {
+        return Err(WandelError::ImageDecode("PDF contains no pages".into()));
+    }
+
+    let max_edge = max_edge_px.clamp(80, 512) as f32;
+
+    (0..total_pages)
+        .into_par_iter()
+        .map(|idx| {
+            let thread_pdf = HayroPdf::new(Arc::clone(&bytes))
+                .map_err(|e| WandelError::ImageDecode(format!("PDF parse error: {:?}", e)))?;
+            let page = thread_pdf
+                .pages()
+                .get(idx)
+                .ok_or_else(|| WandelError::ImageDecode("PDF page index out of bounds".into()))?;
+            let (pw, ph) = page.render_dimensions();
+            let scale = (max_edge / pw.max(ph).max(1.0)).clamp(0.1, 2.0);
+            let cache = RenderCache::new();
+            let pixmap = hayro::render(
+                page,
+                &cache,
+                &InterpreterSettings::default(),
+                &RenderSettings::default(),
+                &PixmapSettings {
+                    x_scale: scale,
+                    y_scale: scale,
+                    bg_color: WHITE,
+                },
+            );
+            let img = pixmap_to_dynamic_image(pixmap)?;
+            let rgb = img.to_rgb8();
+            let (w, h) = (rgb.width(), rgb.height());
+            let mut jpeg_bytes = Vec::new();
+            let mut enc = jpeg_encoder::Encoder::new(&mut jpeg_bytes, 78);
+            enc.set_progressive(false);
+            enc.encode(
+                rgb.as_raw(),
+                w as u16,
+                h as u16,
+                jpeg_encoder::ColorType::Rgb,
+            )
+            .map_err(|e| WandelError::ImageEncode(format!("PDF thumb JPEG error: {}", e)))?;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
+            Ok(PdfPageThumb {
+                page: idx + 1,
+                width: pw.round() as u32,
+                height: ph.round() as u32,
+                thumbnail_data_url: format!("data:image/jpeg;base64,{}", b64),
+            })
+        })
+        .collect()
+}
+
+/// Losslessly reorders, duplicates, deletes, and rotates individual pages of a PDF in a single `lopdf` pass.
+pub fn organize_pdf_pages(input: &Path, output: &Path, plan: &[PdfPagePlan]) -> Result<u64> {
+    use lopdf::Object;
+
+    if plan.is_empty() {
+        return Err(WandelError::InvalidSettings(
+            "At least one page must remain in the organized PDF".into(),
+        ));
+    }
+
+    let mut doc = lopdf::Document::load(input)
+        .map_err(|e| WandelError::ImageDecode(format!("Failed to load PDF: {}", e)))?;
+    let pages = doc.get_pages();
+    let total_pages = pages.len();
+    if total_pages == 0 {
+        return Err(WandelError::ImageDecode("PDF has no pages".into()));
+    }
+
+    for item in plan {
+        if item.page == 0 || item.page > total_pages {
+            return Err(WandelError::InvalidSettings(format!(
+                "Page {} is out of range (1..={})",
+                item.page, total_pages
+            )));
+        }
+        if item.rotation_delta.rem_euclid(90) != 0 {
+            return Err(WandelError::InvalidSettings(format!(
+                "Rotation delta {} must be a multiple of 90",
+                item.rotation_delta
+            )));
+        }
+    }
+
+    let root_pages_id = doc
+        .trailer
+        .get(b"Root")
+        .ok()
+        .and_then(|o| o.as_reference().ok())
+        .and_then(|cat_id| doc.get_object(cat_id).ok())
+        .and_then(|cat| cat.as_dict().ok())
+        .and_then(|cat_dict| cat_dict.get(b"Pages").ok())
+        .and_then(|o| o.as_reference().ok())
+        .ok_or_else(|| WandelError::ImageDecode("PDF catalog missing /Pages reference".into()))?;
+
+    let mut used_ids: BTreeSet<lopdf::ObjectId> = BTreeSet::new();
+    let mut final_ids: Vec<lopdf::ObjectId> = Vec::with_capacity(plan.len());
+
+    for item in plan {
+        let src_id = *pages
+            .get(&(item.page as u32))
+            .ok_or_else(|| WandelError::ImageDecode(format!("Missing page {}", item.page)))?;
+        let target_id = if used_ids.insert(src_id) {
+            src_id
+        } else {
+            let cloned = doc
+                .get_object(src_id)
+                .map_err(|e| WandelError::ImageDecode(format!("Failed to clone page: {}", e)))?
+                .clone();
+            doc.add_object(cloned)
+        };
+
+        if let Ok(obj) = doc.get_object_mut(target_id) {
+            if let Ok(dict) = obj.as_dict_mut() {
+                dict.set("Parent", Object::Reference(root_pages_id));
+                let delta = i64::from(item.rotation_delta.rem_euclid(360));
+                if delta != 0 {
+                    let current = dict
+                        .get(b"Rotate")
+                        .ok()
+                        .and_then(|o| o.as_i64().ok())
+                        .unwrap_or(0);
+                    let next_rot = (current + delta).rem_euclid(360);
+                    dict.set("Rotate", Object::Integer(next_rot));
+                }
+            }
+        }
+        final_ids.push(target_id);
+    }
+
+    if let Ok(pages_obj) = doc.get_object_mut(root_pages_id) {
+        if let Ok(pages_dict) = pages_obj.as_dict_mut() {
+            pages_dict.set("Count", Object::Integer(final_ids.len() as i64));
+            pages_dict.set(
+                "Kids",
+                Object::Array(final_ids.iter().map(|&id| Object::Reference(id)).collect()),
+            );
+        }
+    }
+
+    doc.prune_objects();
+
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    doc.save(output)
+        .map_err(|e| WandelError::ImageEncode(format!("Failed to save organized PDF: {}", e)))?;
+    let size = std::fs::metadata(output)?.len();
+    Ok(size)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

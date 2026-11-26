@@ -1800,3 +1800,69 @@ fn run_video_target(
     assert!(Path::new(&out).exists(), "Output file missing: {}", out);
     assert!(std::fs::metadata(&out).unwrap().len() > 0);
 }
+
+#[test]
+fn v24_pdf_thumbnails_and_organize_pages() {
+    use wandel_core::{
+        inspect_pdf, merge_images_to_pdf, organize_pdf_pages, render_pdf_thumbnails, PdfPageFit,
+        PdfPagePlan,
+    };
+
+    let dir = tempdir().unwrap();
+    let img1 = dir.path().join("p1.png");
+    let img2 = dir.path().join("p2.png");
+    let img3 = dir.path().join("p3.png");
+    DynamicImage::ImageRgba8(ImageBuffer::from_pixel(120, 160, Rgba([220, 60, 60, 255])))
+        .save(&img1)
+        .unwrap();
+    DynamicImage::ImageRgba8(ImageBuffer::from_pixel(120, 160, Rgba([60, 200, 80, 255])))
+        .save(&img2)
+        .unwrap();
+    DynamicImage::ImageRgba8(ImageBuffer::from_pixel(120, 160, Rgba([60, 90, 220, 255])))
+        .save(&img3)
+        .unwrap();
+
+    let src_pdf = dir.path().join("three.pdf");
+    merge_images_to_pdf(
+        &[img1, img2, img3],
+        &src_pdf,
+        &ImageSettings::default(),
+        PdfPageFit::FitToImage,
+        None,
+    )
+    .unwrap();
+
+    // 1. Parallel thumbnail rendering
+    let thumbs = render_pdf_thumbnails(&src_pdf, 160).unwrap();
+    assert_eq!(thumbs.len(), 3);
+    assert_eq!(thumbs[0].page, 1);
+    assert_eq!(thumbs[2].page, 3);
+    assert!(thumbs[0]
+        .thumbnail_data_url
+        .starts_with("data:image/jpeg;base64,"));
+
+    // 2. Single-pass lossless organize: reorder [3, 1, 1] (duplicate p1, drop p2) + rotate p3 by 90°
+    let out_pdf = dir.path().join("organized.pdf");
+    let bytes = organize_pdf_pages(
+        &src_pdf,
+        &out_pdf,
+        &[
+            PdfPagePlan {
+                page: 3,
+                rotation_delta: 90,
+            },
+            PdfPagePlan {
+                page: 1,
+                rotation_delta: 0,
+            },
+            PdfPagePlan {
+                page: 1,
+                rotation_delta: 180,
+            },
+        ],
+    )
+    .unwrap();
+    assert!(bytes > 0);
+    let (page_count, _, _, _) = inspect_pdf(&out_pdf);
+    assert_eq!(page_count, Some(3));
+}

@@ -7,12 +7,22 @@ Wandel includes a native, zero-bloat **Model Context Protocol (MCP)** server (`c
 ## Running Headless
 
 ```bash
-# Unrestricted local access
+# Unrestricted local access (stdio)
 wandel mcp
 
 # Production sandbox: restrict all reads & writes to approved folders (repeatable)
 wandel mcp --allowed-dir /path/to/workspace --allowed-dir /tmp/exports
+
+# Local HTTP JSON-RPC transport (for Docker, n8n, scripts, or HTTP MCP clients)
+wandel mcp --http 127.0.0.1:3847 --token my-secret-token --allowed-dir /path/to/workspace
 ```
+
+### Local HTTP Endpoints (`--http`)
+
+When started with `--http <addr>` (recommended: loopback `127.0.0.1:<port>`):
+- **`GET /health`** — returns `{ "status": "ok", "serverName": "wandel-mcp", "version": "...", "transport": "http" }`.
+- **`POST /mcp`** — accepts standard JSON-RPC 2.0 MCP requests (`initialize`, `tools/list`, `tools/call`, `resources/*`, `prompts/*`).
+- **`--token <secret>`** — optional bearer auth requiring `Authorization: Bearer <secret>` on every `POST /mcp` call.
 
 ### Client Configuration (Antigravity, Claude Desktop, Cursor, Windsurf)
 

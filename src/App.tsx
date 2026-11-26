@@ -27,6 +27,7 @@ import { HistoryDrawer } from "./components/HistoryDrawer";
 import { McpModal } from "./components/McpModal";
 import { MetadataModal } from "./components/MetadataModal";
 import { PaletteModal } from "./components/PaletteModal";
+import { PdfOrganizerModal } from "./components/PdfOrganizerModal";
 import { PreviewModal } from "./components/PreviewModal";
 import { QrModal } from "./components/QrModal";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -117,6 +118,7 @@ export default function App() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [inspectItem, setInspectItem] = useState<QueueItem | null>(null);
   const [paletteItem, setPaletteItem] = useState<QueueItem | null>(null);
+  const [pdfOrganizerItem, setPdfOrganizerItem] = useState<QueueItem | null>(null);
   const [dataUrlItem, setDataUrlItem] = useState<QueueItem | null>(null);
   const [watchFolders, setWatchFolders] = useState<WatchFolderInfo[]>([]);
   const [previewItem, setPreviewItem] = useState<QueueItem | null>(null);
@@ -1929,6 +1931,7 @@ export default function App() {
               onCompressPdf={handleCompressPdf}
               onRotatePdf={handleRotatePdf}
               onReorderPdf={handleReorderPdf}
+              onOrganizePdf={setPdfOrganizerItem}
               onStampPdf={handleStampPdf}
               onNumberPdf={handleNumberPdf}
               onExtractPdfImages={handleExtractPdfImages}
@@ -2105,6 +2108,14 @@ export default function App() {
         <PaletteModal
           item={paletteItem}
           onClose={() => setPaletteItem(null)}
+        />
+      )}
+
+      {pdfOrganizerItem && (
+        <PdfOrganizerModal
+          item={pdfOrganizerItem}
+          onClose={() => setPdfOrganizerItem(null)}
+          onSaved={(summary) => setBatchSummary(summary)}
         />
       )}
 

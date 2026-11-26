@@ -21,11 +21,11 @@ This document tracks Wandel's completed milestones from `v1.0.0` through `v2.2.0
 | **v2.0 (`v20`)** | Composable multi-step `wandel_pipeline` (`$prev` / `$step.N` piping + `wandel pipeline <recipe.json>`), MCP directory sandboxing (`--allowed-dir`), zero-write `dryRun` preview, and diagonal repeating tiled text watermarks. |
 | **v2.1 (`v21`)** | 100% frontend utility coverage (`Vitest` + `v8`), full `wandel-cli` E2E test suite, expanded `wandel-mcp` & `wandel-core` tests, strict GitHub Actions CI with `cargo-llvm-cov`, and automated macOS (arm64/x64), Linux (x64), and Windows (x64) Desktop + CLI/MCP releases. |
 | **v2.2 (`v22`)** | Cached `OnceLock` system `fontdb`, `rayon` parallel RGBA pixel passes + zero-copy `into_rgba8()`, memoized queue rendering, SEO/marketing `README.md` with macOS setup guide, and structured `docs/` (`ARCHITECTURE.md`, `MCP.md`, `PLANS.md`). |
+| **v2.3 (`v23`)** | Progressive disclosure UX (`SectionAccordion` collapsible drawers, live Active Modifiers chip strip, decluttered `Batch Tools ▾` & per-row `⋯` menus, floating dismissible toast), Wandel brand SVG icon, and cross-OS CI/Release hardening (`nasm`, `fonts-dejavu-core`, 8 MB Windows CLI stack). |
+| **v2.4 (`v24`)** | Interactive Visual PDF Page Organizer (`PdfOrganizerModal` with parallel `hayro` thumbnails, drag-to-reorder, per-page rotate/duplicate/remove, single-pass lossless `lopdf` export) and Local HTTP MCP Transport (`wandel mcp --http` with optional `--token` bearer auth). |
 
 ---
 
 ## Future Ideas (Backlog)
 - Signed & notarized macOS Universal builds + Windows code signing.
 - Optional Homebrew Cask (`brew install --cask wandel`) and Winget / Scoop manifests.
-- Interactive visual PDF page thumbnail drag-to-reorder modal.
-- Local HTTP/SSE transport option for `wandel mcp` alongside stdio for remote/containerized agent setups.

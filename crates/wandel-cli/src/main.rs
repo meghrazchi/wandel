@@ -483,11 +483,19 @@ enum Commands {
         output: PathBuf,
     },
 
-    /// Start the headless Wandel MCP (Model Context Protocol) server over stdio
+    /// Start the headless Wandel MCP (Model Context Protocol) server over stdio or local HTTP
     Mcp {
         /// Optional sandbox root directory (repeatable; restricts all MCP file access)
         #[arg(long = "allowed-dir")]
         allowed_dirs: Vec<PathBuf>,
+
+        /// Optional local HTTP bind address (e.g. 127.0.0.1:3847). If omitted, runs over stdio.
+        #[arg(long)]
+        http: Option<String>,
+
+        /// Optional Bearer token required for Authorization header when --http is enabled
+        #[arg(long)]
+        token: Option<String>,
     },
 
     /// Execute a multi-step composable JSON media pipeline recipe headlessly
@@ -1195,9 +1203,22 @@ fn run() {
                 std::process::exit(1);
             }
         },
-        Commands::Mcp { allowed_dirs } => {
-            let server = wandel_mcp::McpServer::with_allowed_dirs(ffmpeg, ffprobe, allowed_dirs);
-            if let Err(e) = server.run_stdio() {
+        Commands::Mcp {
+            allowed_dirs,
+            http,
+            token,
+        } => {
+            let server = std::sync::Arc::new(wandel_mcp::McpServer::with_allowed_dirs(
+                ffmpeg,
+                ffprobe,
+                allowed_dirs,
+            ));
+            let res = if let Some(addr) = http {
+                wandel_mcp::serve_http(server, &addr, token)
+            } else {
+                server.run_stdio()
+            };
+            if let Err(e) = res {
                 eprintln!("Wandel MCP server error: {}", e);
                 std::process::exit(1);
             }

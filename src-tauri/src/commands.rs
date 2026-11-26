@@ -771,3 +771,32 @@ pub fn get_mcp_status(state: State<'_, AppState>) -> serde_json::Value {
     }
     info
 }
+
+#[tauri::command]
+pub async fn render_pdf_thumbnails(
+    path: String,
+    max_edge_px: Option<u32>,
+) -> Result<Vec<wandel_core::PdfPageThumb>, String> {
+    let input = PathBuf::from(path);
+    let edge = max_edge_px.unwrap_or(240);
+    tauri::async_runtime::spawn_blocking(move || wandel_core::render_pdf_thumbnails(&input, edge))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn organize_pdf_pages(
+    path: String,
+    output_path: String,
+    plan: Vec<wandel_core::PdfPagePlan>,
+) -> Result<u64, String> {
+    let input = PathBuf::from(path);
+    let out = PathBuf::from(output_path);
+    tauri::async_runtime::spawn_blocking(move || {
+        wandel_core::organize_pdf_pages(&input, &out, &plan)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}

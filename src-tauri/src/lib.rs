@@ -112,6 +112,8 @@ pub fn run() {
             commands::scrub_pdf_metadata,
             commands::split_media_segments,
             commands::get_mcp_status,
+            commands::render_pdf_thumbnails,
+            commands::organize_pdf_pages,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Wandel");

@@ -94,6 +94,95 @@ impl McpServer {
         })
     }
 
+    /// Dispatches a single JSON-RPC 2.0 request synchronously (used by the local HTTP transport).
+    /// Returns `None` for notifications (requests without an `id`).
+    pub fn handle_single_request(&self, req: JsonRpcRequest) -> Option<JsonRpcResponse> {
+        let req_id = req.id?;
+        let resp = match req.method.as_str() {
+            "initialize" => JsonRpcResponse::ok(
+                req_id,
+                json!({
+                    "protocolVersion": PROTOCOL_VERSION,
+                    "capabilities": {
+                        "tools": { "listChanged": false },
+                        "resources": { "subscribe": false, "listChanged": false },
+                        "prompts": { "listChanged": false }
+                    },
+                    "serverInfo": {
+                        "name": SERVER_NAME,
+                        "version": SERVER_VERSION
+                    },
+                    "instructions": "Wandel is a fast parallel media converter (Images, Video, Audio, PDF). Prefer batching multiple files/folders into a single wandel_convert or wandel_inspect call for maximum CPU+GPU parallelism."
+                }),
+            ),
+            "ping" => JsonRpcResponse::ok(req_id, json!({})),
+            "tools/list" => JsonRpcResponse::ok(req_id, json!({ "tools": tool_definitions() })),
+            "resources/list" => {
+                JsonRpcResponse::ok(req_id, json!({ "resources": resource_definitions() }))
+            }
+            "resources/read" => {
+                let uri = req
+                    .params
+                    .get("uri")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if uri == "wandel://capabilities" {
+                    let text = serde_json::to_string_pretty(&self.ctx.capabilities_json())
+                        .unwrap_or_default();
+                    JsonRpcResponse::ok(
+                        req_id,
+                        json!({
+                            "contents": [{
+                                "uri": uri,
+                                "mimeType": "application/json",
+                                "text": text
+                            }]
+                        }),
+                    )
+                } else {
+                    JsonRpcResponse::err(req_id, -32602, format!("Unknown resource: {}", uri))
+                }
+            }
+            "prompts/list" => {
+                JsonRpcResponse::ok(req_id, json!({ "prompts": prompt_definitions() }))
+            }
+            "prompts/get" => {
+                let name = req
+                    .params
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let args = req.params.get("arguments").cloned().unwrap_or(Value::Null);
+                match get_prompt(name, &args) {
+                    Some(p) => JsonRpcResponse::ok(req_id, p),
+                    None => JsonRpcResponse::err(req_id, -32602, format!("Unknown prompt: {}", name)),
+                }
+            }
+            "tools/call" => {
+                let tool_name = req
+                    .params
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let tool_args = req
+                    .params
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                let outcome = execute_tool(
+                    &self.ctx,
+                    tool_name,
+                    &tool_args,
+                    Arc::new(AtomicBool::new(false)),
+                    |_, _, _| {},
+                );
+                JsonRpcResponse::ok(req_id, outcome.to_mcp_result())
+            }
+            other => JsonRpcResponse::err(req_id, -32601, format!("Method not found: {}", other)),
+        };
+        Some(resp)
+    }
+
     /// Runs the MCP server over standard input/output (newline-delimited JSON-RPC 2.0).
     pub fn run_stdio(&self) -> io::Result<()> {
         let stdin = io::stdin();

@@ -35,6 +35,8 @@ export function McpModal({ onClose }: McpModalProps) {
   const [status, setStatus] = useState<McpStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [allowedDir, setAllowedDir] = useState<string>("");
+  const [transport, setTransport] = useState<"stdio" | "http">("stdio");
+  const [httpAddr, setHttpAddr] = useState("127.0.0.1:3847");
   const [copied, setCopied] = useState<"json" | "cmd" | "pipeline" | null>(null);
 
   const loadStatus = async () => {
@@ -63,21 +65,37 @@ export function McpModal({ onClose }: McpModalProps) {
   };
 
   const cliCmd = status?.cliCommand || "wandel";
-  const mcpArgs = allowedDir.trim()
-    ? ["mcp", "--allowed-dir", allowedDir.trim()]
-    : ["mcp"];
-  const mcpConfigJson = JSON.stringify(
-    {
-      mcpServers: {
-        wandel: {
-          command: cliCmd,
-          args: mcpArgs,
-        },
-      },
-    },
-    null,
-    2
-  );
+  const mcpArgs = [
+    "mcp",
+    ...(transport === "http" ? ["--http", httpAddr.trim() || "127.0.0.1:3847"] : []),
+    ...(allowedDir.trim() ? ["--allowed-dir", allowedDir.trim()] : []),
+  ];
+  const mcpConfigJson =
+    transport === "stdio"
+      ? JSON.stringify(
+          {
+            mcpServers: {
+              wandel: {
+                command: cliCmd,
+                args: mcpArgs,
+              },
+            },
+          },
+          null,
+          2
+        )
+      : JSON.stringify(
+          {
+            mcpServers: {
+              wandel: {
+                url: `http://${httpAddr.trim() || "127.0.0.1:3847"}/mcp`,
+                transport: "http",
+              },
+            },
+          },
+          null,
+          2
+        );
 
   const pipelineExampleJson = JSON.stringify(
     {
@@ -189,6 +207,43 @@ export function McpModal({ onClose }: McpModalProps) {
               )}
             </div>
           )}
+
+          {/* Transport Mode Switcher */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-100/80 p-0.5 dark:border-zinc-800 dark:bg-zinc-900">
+              <button
+                type="button"
+                onClick={() => setTransport("stdio")}
+                className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition cursor-pointer ${
+                  transport === "stdio"
+                    ? "bg-white text-indigo-600 shadow-xs dark:bg-zinc-800 dark:text-indigo-400"
+                    : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                }`}
+              >
+                Stdio (Desktop Clients)
+              </button>
+              <button
+                type="button"
+                onClick={() => setTransport("http")}
+                className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition cursor-pointer ${
+                  transport === "http"
+                    ? "bg-white text-indigo-600 shadow-xs dark:bg-zinc-800 dark:text-indigo-400"
+                    : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                }`}
+              >
+                Local HTTP (Docker / Remote)
+              </button>
+            </div>
+            {transport === "http" && (
+              <input
+                type="text"
+                value={httpAddr}
+                onChange={(e) => setHttpAddr(e.target.value)}
+                placeholder="127.0.0.1:3847"
+                className="w-40 rounded-lg border border-zinc-200 bg-white px-2.5 py-1 font-mono text-[11px] text-zinc-800 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
+              />
+            )}
+          </div>
 
           {/* Client Config JSON */}
           <div className="space-y-1.5">

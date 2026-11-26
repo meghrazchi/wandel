@@ -327,3 +327,81 @@ fn mcp_exhaustive_protocol_and_error_paths() {
     assert_eq!(by_id(25)["result"]["isError"], false);
     assert_eq!(by_id(26)["result"]["isError"], true);
 }
+
+#[test]
+fn mcp_http_transport_and_auth() {
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use wandel_mcp::serve_http_on_listener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let shutdown_srv = Arc::clone(&shutdown);
+    let server = Arc::new(McpServer::new(None, None));
+
+    let handle = std::thread::spawn(move || {
+        serve_http_on_listener(
+            server,
+            listener,
+            Some("secret-token-24".into()),
+            shutdown_srv,
+        )
+        .unwrap();
+    });
+
+    let send_raw = |req: &str| -> String {
+        let mut stream = TcpStream::connect(addr).unwrap();
+        stream.write_all(req.as_bytes()).unwrap();
+        let mut resp = String::new();
+        stream.read_to_string(&mut resp).unwrap();
+        resp
+    };
+
+    // 1. GET /health
+    let health = send_raw("GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    assert!(health.starts_with("HTTP/1.1 200 OK"));
+    assert!(health.contains("\"transport\":\"http\""));
+
+    // 2. Unauthorized POST /mcp rejected with 401
+    let init_body = json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}).to_string();
+    let unauth = send_raw(&format!(
+        "POST /mcp HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+        init_body.len(),
+        init_body
+    ));
+    assert!(unauth.starts_with("HTTP/1.1 401 Unauthorized"));
+
+    // 3. Authorized POST /mcp initialize
+    let auth_init = send_raw(&format!(
+        "POST /mcp HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer secret-token-24\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+        init_body.len(),
+        init_body
+    ));
+    assert!(auth_init.starts_with("HTTP/1.1 200 OK"));
+    let body_json: Value =
+        serde_json::from_str(auth_init.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    assert_eq!(body_json["result"]["serverInfo"]["name"], "wandel-mcp");
+
+    // 4. Authorized POST /mcp tools/call -> wandel_info
+    let info_body = json!({
+        "jsonrpc":"2.0",
+        "id":2,
+        "method":"tools/call",
+        "params":{"name":"wandel_info","arguments":{}}
+    })
+    .to_string();
+    let auth_info = send_raw(&format!(
+        "POST /mcp HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer secret-token-24\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+        info_body.len(),
+        info_body
+    ));
+    assert!(auth_info.starts_with("HTTP/1.1 200 OK"));
+    let info_json: Value =
+        serde_json::from_str(auth_info.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    assert_eq!(info_json["result"]["isError"], false);
+
+    shutdown.store(true, Ordering::Relaxed);
+    handle.join().unwrap();
+}

@@ -22,8 +22,8 @@ pub use image_engine::{
 pub use inspect::{inspect_detailed_metadata, inspect_paths, DetailedMetadata, MetadataEntry};
 pub use pdf_engine::{
     compress_pdf, convert_pdf_to_images, extract_pdf_images, inspect_pdf, merge_images_to_pdf,
-    merge_pdfs, number_pdf_pages, reorder_pdf_pages, rotate_pdf_pages, scrub_pdf_metadata,
-    split_pdf, stamp_pdf_text,
+    merge_pdfs, number_pdf_pages, organize_pdf_pages, render_pdf_thumbnails, reorder_pdf_pages,
+    rotate_pdf_pages, scrub_pdf_metadata, split_pdf, stamp_pdf_text, PdfPagePlan, PdfPageThumb,
 };
 pub use scheduler::{bundle_files_to_zip, run_batch, JobItem, ProgressEvent};
 pub use settings::{
