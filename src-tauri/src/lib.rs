@@ -1,0 +1,118 @@
+mod commands;
+mod state;
+mod watcher;
+
+use state::{resolve_sidecar_binary, AppState};
+use std::sync::atomic::Ordering;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{Manager, WindowEvent};
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let ffmpeg_path = resolve_sidecar_binary("ffmpeg");
+    let ffprobe_path = resolve_sidecar_binary("ffprobe");
+    let app_state = AppState::new(ffmpeg_path, ffprobe_path);
+
+    tauri::Builder::default()
+        .manage(app_state)
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            let show_item = MenuItem::with_id(app, "show", "Open Wandel", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit Wandel", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+            let mut tray_builder = TrayIconBuilder::new()
+                .menu(&menu)
+                .tooltip("Wandel — Parallel Media Converter")
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(win) = app.get_webview_window("main") {
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                        }
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(win) = app.get_webview_window("main") {
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                        }
+                    }
+                });
+
+            if let Some(icon) = app.default_window_icon() {
+                tray_builder = tray_builder.icon(icon.clone());
+            }
+            let _ = tray_builder.build(app);
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let state = window.state::<AppState>();
+                if state.minimize_to_tray.load(Ordering::Relaxed) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::get_hardware_info,
+            commands::get_preset_settings,
+            commands::inspect_paths,
+            commands::import_clipboard_image,
+            commands::preview_image,
+            commands::start_wandel,
+            commands::cancel_wandel,
+            commands::list_watch_folders,
+            commands::start_watch_folder,
+            commands::stop_watch_folder,
+            commands::set_minimize_to_tray,
+            commands::merge_images_to_pdf,
+            commands::capture_video_frame,
+            commands::inspect_detailed_metadata,
+            commands::generate_icon_pack,
+            commands::create_contact_sheet,
+            commands::merge_videos,
+            commands::merge_pdfs,
+            commands::split_pdf,
+            commands::find_duplicate_images,
+            commands::compress_pdf,
+            commands::extract_color_palette,
+            commands::generate_qr_svg,
+            commands::save_qr_code,
+            commands::merge_audio,
+            commands::export_image_data_url,
+            commands::create_video_storyboard,
+            commands::generate_responsive_set,
+            commands::rotate_pdf_pages,
+            commands::reorder_pdf_pages,
+            commands::create_comparison_image,
+            commands::extract_video_frames,
+            commands::create_audio_waveform,
+            commands::create_slideshow_video,
+            commands::stamp_pdf_text,
+            commands::split_image_grid,
+            commands::number_pdf_pages,
+            commands::create_sprite_sheet,
+            commands::extract_pdf_images,
+            commands::create_podcast_video,
+            commands::scrub_pdf_metadata,
+            commands::split_media_segments,
+            commands::get_mcp_status,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running Wandel");
+}

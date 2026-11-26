@@ -1,0 +1,33 @@
+[package]
+name = "wandel-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+image = { version = "0.25", default-features = true }
+fast_image_resize = { version = "5", features = ["image"] }
+oxipng = { version = "9", default-features = false, features = ["parallel"] }
+jpeg-encoder = "0.6"
+webp = "0.3"
+ravif = "0.11"
+rgb = "0.8"
+resvg = "0.45"
+jxl-oxide = "0.11"
+rayon = "1.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+walkdir = "2"
+num_cpus = "1.16"
+base64 = "0.22"
+tracing = "0.1"
+trash = "5"
+pdf-writer = "0.12"
+hayro = { version = "0.9", features = ["embed-fonts"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+lopdf = "0.36"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+
+[dev-dependencies]
+tempfile = "3"

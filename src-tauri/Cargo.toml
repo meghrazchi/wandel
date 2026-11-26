@@ -1,0 +1,24 @@
+[package]
+name = "wandel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "wandel_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+wandel-core = { path = "../crates/wandel-core" }
+wandel-mcp = { path = "../crates/wandel-mcp" }
+tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+notify = "8"
+tracing = "0.1"
+tracing-subscriber = "0.3"

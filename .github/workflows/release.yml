@@ -1,0 +1,115 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish-tauri:
+    name: Build & Release (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS Apple Silicon
+            os: macos-latest
+            target: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin
+          - label: macOS Intel
+            os: macos-latest
+            target: x86_64-apple-darwin
+            args: --target x86_64-apple-darwin
+          - label: Linux x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            args: --target x86_64-unknown-linux-gnu
+          - label: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: --target x86_64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux Tauri dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xz-utils
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Download static FFmpeg & FFprobe sidecars (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p src-tauri/binaries /tmp/ffmpeg-dl
+          if [[ "${{ matrix.target }}" == "aarch64-apple-darwin" ]]; then
+            ARCH="arm64"
+          else
+            ARCH="amd64"
+          fi
+          curl -fsSL "https://ffmpeg.martin-riedl.de/redirect/latest/macos/${ARCH}/release/ffmpeg.zip" -o /tmp/ffmpeg-dl/ffmpeg.zip
+          curl -fsSL "https://ffmpeg.martin-riedl.de/redirect/latest/macos/${ARCH}/release/ffprobe.zip" -o /tmp/ffmpeg-dl/ffprobe.zip
+          unzip -o /tmp/ffmpeg-dl/ffmpeg.zip -d /tmp/ffmpeg-dl
+          unzip -o /tmp/ffmpeg-dl/ffprobe.zip -d /tmp/ffmpeg-dl
+          mv /tmp/ffmpeg-dl/ffmpeg "src-tauri/binaries/ffmpeg-${{ matrix.target }}"
+          mv /tmp/ffmpeg-dl/ffprobe "src-tauri/binaries/ffprobe-${{ matrix.target }}"
+          chmod +x "src-tauri/binaries/ffmpeg-${{ matrix.target }}" "src-tauri/binaries/ffprobe-${{ matrix.target }}"
+
+      - name: Download static FFmpeg & FFprobe sidecars (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p src-tauri/binaries /tmp/ffmpeg-dl
+          curl -fsSL "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz" -o /tmp/ffmpeg-dl/ffmpeg.tar.xz
+          tar -xf /tmp/ffmpeg-dl/ffmpeg.tar.xz -C /tmp/ffmpeg-dl --strip-components=1
+          mv /tmp/ffmpeg-dl/bin/ffmpeg "src-tauri/binaries/ffmpeg-${{ matrix.target }}"
+          mv /tmp/ffmpeg-dl/bin/ffprobe "src-tauri/binaries/ffprobe-${{ matrix.target }}"
+          chmod +x "src-tauri/binaries/ffmpeg-${{ matrix.target }}" "src-tauri/binaries/ffprobe-${{ matrix.target }}"
+
+      - name: Download static FFmpeg & FFprobe sidecars (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src-tauri/binaries, $env:TEMP\ffmpeg-dl | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile "$env:TEMP\ffmpeg-dl\ffmpeg.zip"
+          Expand-Archive -Path "$env:TEMP\ffmpeg-dl\ffmpeg.zip" -DestinationPath "$env:TEMP\ffmpeg-dl" -Force
+          $binDir = (Get-ChildItem -Path "$env:TEMP\ffmpeg-dl" -Directory | Select-Object -First 1).FullName + "\bin"
+          Copy-Item "$binDir\ffmpeg.exe" "src-tauri/binaries/ffmpeg-${{ matrix.target }}.exe"
+          Copy-Item "$binDir\ffprobe.exe" "src-tauri/binaries/ffprobe-${{ matrix.target }}.exe"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build & publish Tauri bundles
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "Wandel v__VERSION__"
+          releaseBody: "See the assets below to download and install Wandel for macOS, Windows, or Linux."
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

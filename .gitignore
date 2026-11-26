@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+dist/
+target/
+
+# Tauri & Sidecar binaries
+src-tauri/binaries/ffmpeg-*
+src-tauri/binaries/ffprobe-*
+src-tauri/gen/
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/

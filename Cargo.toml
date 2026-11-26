@@ -1,0 +1,15 @@
+[workspace]
+members = ["crates/wandel-core", "crates/wandel-mcp", "crates/wandel-cli", "src-tauri"]
+resolver = "2"
+
+[workspace.package]
+version = "2.0.0"
+edition = "2021"
+license = "MIT"
+authors = ["Wandel Contributors"]
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+opt-level = 3
+strip = true

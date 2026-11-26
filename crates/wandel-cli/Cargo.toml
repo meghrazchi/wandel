@@ -1,0 +1,15 @@
+[package]
+name = "wandel-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "wandel"
+path = "src/main.rs"
+
+[dependencies]
+wandel-core = { path = "../wandel-core" }
+wandel-mcp = { path = "../wandel-mcp" }
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
