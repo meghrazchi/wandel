@@ -19,7 +19,7 @@ use wandel_core::{
 #[command(
     name = "wandel",
     version,
-    about = "Wandel — Fast, parallel image & video converter"
+    about = "Wandel: Fast, parallel image, video, audio & PDF converter"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -198,6 +198,10 @@ enum Commands {
         /// Additional comma-separated image formats to export simultaneously (e.g. avif,jpg)
         #[arg(long)]
         also: Option<String>,
+
+        /// Optional bottom caption bar text rendered below images
+        #[arg(long)]
+        caption: Option<String>,
     },
 
     /// Display detected CPU cores, FFmpeg status, and GPU hardware encoders
@@ -562,6 +566,58 @@ enum Commands {
         to: String,
     },
 
+    /// Export a PDF as clean RAG-ready Markdown (.md) with YAML frontmatter
+    PdfMd {
+        input: PathBuf,
+        #[arg(short = 'o', long)]
+        output: Option<PathBuf>,
+    },
+
+    /// Impose pairs of PDF pages side-by-side (2-Up) onto landscape sheets
+    Pdf2up {
+        input: PathBuf,
+        #[arg(short = 'o', long)]
+        output: PathBuf,
+        #[arg(long, default_value_t = 150)]
+        dpi: u16,
+    },
+
+    /// Stitch 2+ images vertically or horizontally at full resolution
+    Stitch {
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        #[arg(short = 'o', long)]
+        output: PathBuf,
+        #[arg(long, default_value = "vertical")]
+        direction: String,
+        #[arg(long, default_value_t = 0)]
+        gap: u32,
+        #[arg(long, default_value = "#ffffff")]
+        bg: String,
+    },
+
+    /// Losslessly set PDF document metadata (/Title, /Author, /Subject, /Keywords)
+    PdfMeta {
+        input: PathBuf,
+        #[arg(short = 'o', long)]
+        output: PathBuf,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        author: Option<String>,
+        #[arg(long)]
+        subject: Option<String>,
+        #[arg(long)]
+        keywords: Option<String>,
+    },
+
+    /// Generate a tiny (< 1 KB) blurred inline Base64 WebP LQIP placeholder
+    Lqip {
+        input: PathBuf,
+        #[arg(long, default_value_t = 24)]
+        width: u32,
+    },
+
     /// Start the headless Wandel MCP (Model Context Protocol) server over stdio or local HTTP
     Mcp {
         /// Optional sandbox root directory (repeatable; restricts all MCP file access)
@@ -821,7 +877,7 @@ fn run() {
             } else {
                 println!("Found {} duplicate group(s):", groups.len());
                 for (i, g) in groups.iter().enumerate() {
-                    println!("  Group {} — Keep: {}", i + 1, g.keeper);
+                    println!("  Group {} | Keep: {}", i + 1, g.keeper);
                     for d in &g.duplicates {
                         println!("    Duplicate: {}", d);
                     }
@@ -1408,6 +1464,137 @@ fn run() {
                 }
             }
         }
+        Commands::PdfMd { input, output } => {
+            if let Some(out) = output {
+                match wandel_core::export_pdf_markdown_file(&input, &out) {
+                    Ok((pages, bytes)) => println!(
+                        "Exported {} PDF page(s) to Markdown -> {} ({:.1} KB)",
+                        pages,
+                        out.display(),
+                        bytes as f64 / 1024.0
+                    ),
+                    Err(e) => {
+                        eprintln!("PDF Markdown export failed: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                match wandel_core::extract_pdf_text(&input) {
+                    Ok(pages) => {
+                        let title = input
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("Document");
+                        println!("# {}\n", title);
+                        for (num, text) in pages {
+                            println!("## Page {}\n\n{}\n", num, text);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("PDF Markdown export failed: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
+        Commands::Pdf2up { input, output, dpi } => {
+            match wandel_core::convert_pdf_two_up(&input, &output, dpi) {
+                Ok((sheets, bytes)) => println!(
+                    "Created 2-Up PDF ({} sheets, {} DPI) -> {} ({:.1} KB)",
+                    sheets,
+                    dpi,
+                    output.display(),
+                    bytes as f64 / 1024.0
+                ),
+                Err(e) => {
+                    eprintln!("2-Up PDF imposition failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::Stitch {
+            inputs,
+            output,
+            direction,
+            gap,
+            bg,
+        } => {
+            let vertical = !direction.eq_ignore_ascii_case("horizontal");
+            let ext = output
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("png")
+                .to_ascii_lowercase();
+            let fmt = ImageFormat::from_extension(&ext)
+                .filter(|f| f.can_encode())
+                .unwrap_or(ImageFormat::Png);
+            let settings = ImageSettings {
+                format: fmt,
+                quality: 88,
+                ..Default::default()
+            };
+            match wandel_core::stitch_images(
+                &inputs,
+                &output,
+                vertical,
+                gap,
+                &bg,
+                &settings,
+                ffmpeg.as_deref(),
+            ) {
+                Ok(bytes) => println!(
+                    "Stitched {} images ({}) -> {} ({:.1} KB)",
+                    inputs.len(),
+                    if vertical { "vertical" } else { "horizontal" },
+                    output.display(),
+                    bytes as f64 / 1024.0
+                ),
+                Err(e) => {
+                    eprintln!("Image stitch failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::PdfMeta {
+            input,
+            output,
+            title,
+            author,
+            subject,
+            keywords,
+        } => match wandel_core::set_pdf_metadata(
+            &input,
+            &output,
+            title.as_deref(),
+            author.as_deref(),
+            subject.as_deref(),
+            keywords.as_deref(),
+        ) {
+            Ok(bytes) => println!(
+                "Updated PDF metadata -> {} ({:.1} KB)",
+                output.display(),
+                bytes as f64 / 1024.0
+            ),
+            Err(e) => {
+                eprintln!("PDF metadata update failed: {}", e);
+                std::process::exit(1);
+            }
+        },
+        Commands::Lqip { input, width } => {
+            match wandel_core::generate_lqip(&input, width, ffmpeg.as_deref()) {
+                Ok(exp) => {
+                    println!("{}", exp.data_url);
+                    eprintln!(
+                        "LQIP generated ({}x{}, {} bytes)",
+                        exp.width, exp.height, exp.bytes
+                    );
+                }
+                Err(e) => {
+                    eprintln!("LQIP generation failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
         Commands::Mcp {
             allowed_dirs,
             http,
@@ -1496,6 +1683,7 @@ fn run() {
             remove_bg,
             remove_bg_tolerance,
             also,
+            caption,
         } => {
             let mut settings = match preset.as_deref() {
                 Some("web" | "web_optimized") => Preset::WebOptimized.to_settings(),
@@ -1545,6 +1733,7 @@ fn run() {
             settings.image.auto_levels = auto_levels;
             settings.image.remove_bg_color = remove_bg;
             settings.image.remove_bg_tolerance = remove_bg_tolerance;
+            settings.image.caption_text = caption;
             if let Some(also_str) = also {
                 for tok in also_str.split(',') {
                     let clean = tok.trim().to_ascii_lowercase();

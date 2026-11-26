@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "High-performance Model Context Protocol (MCP) server for Wandel — works headless over stdio or with the Wandel Desktop UI"
+description = "High-performance Model Context Protocol (MCP) server for Wandel (headless stdio/HTTP and Desktop UI)"
 
 [dependencies]
 wandel-core = { path = "../wandel-core" }

@@ -116,7 +116,7 @@ export function VideoPreviewModal({
         <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5 dark:border-zinc-800">
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Video Preview & Visual Trim — {item.fileName}
+              Video Preview & Visual Trim: {item.fileName}
             </h3>
             <p className="text-xs text-zinc-500">
               Selected range: {start.toFixed(1)}s → {effectiveEnd.toFixed(1)}s ({clipLen.toFixed(1)}s)

@@ -63,7 +63,7 @@ export function PaletteModal({ item, onClose }: PaletteModalProps) {
           <div className="flex items-center gap-2 min-w-0">
             <Palette className="h-4.5 w-4.5 text-indigo-500" />
             <h3 className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Color Palette — {item.fileName}
+              Color Palette: {item.fileName}
             </h3>
           </div>
           <button

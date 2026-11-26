@@ -317,6 +317,9 @@ pub struct ImageSettings {
     /// Optional additional image formats to encode simultaneously from a single decode
     #[serde(default)]
     pub extra_formats: Vec<ImageFormat>,
+    /// Optional bottom caption bar text rendered cleanly below the image
+    #[serde(default)]
+    pub caption_text: Option<String>,
 }
 
 fn default_remove_bg_tolerance() -> u8 {
@@ -374,6 +377,7 @@ impl Default for ImageSettings {
             remove_bg_color: None,
             remove_bg_tolerance: 24,
             extra_formats: Vec::new(),
+            caption_text: None,
         }
     }
 }

@@ -29,6 +29,8 @@ This document tracks Wandel's completed milestones from `v1.0.0` through `v2.2.0
 | **v2.8 (`v28`)** | Pure-Rust Smart Solid/Auto Background Removal with soft edge feathering (`--remove-bg` / MCP `removeBgColor` / UI controls), Parallel Dark-Mode PDF Converter (`wandel pdf-dark` / MCP `dark_mode` / UI), and Desktop Video Poster Frame menu action. |
 | **v2.9 (`v29`)** | Pure-Rust Images → Animated GIF Maker (`wandel make-gif` / MCP `make_gif` / UI), Parallel Animated GIF Frame Extractor (`wandel gif-frames` / MCP `gif_frames` / UI), `#[cfg(desktop)]` mobile-ready Tauri guards, and responsive Queue/Settings mobile tab layout. |
 | **v3.0 (`v30`)** | Single-Decode Multi-Format Fan-Out Export (`--also avif,jpg` / MCP `alsoFormats` / UI **Also Export As** pills), History CSV export in `HistoryDrawer`, and v3.0.0 milestone docs & package manager polish. |
+| **v3.1 (`v31`)** | Pure-Rust PDF → Markdown Converter with YAML frontmatter (`wandel pdf-md` / MCP `extract_markdown` / UI), Parallel 2-Up Side-by-Side PDF Imposition (`wandel pdf-2up` / MCP `two_up` / UI), and Image Caption Footer Bar (`--caption` / MCP `caption` / UI). |
+| **v3.2 (`v32`)** | Full-Resolution Vertical & Horizontal Image Stitcher (`wandel stitch` / MCP `stitch` / UI), Lossless PDF Metadata Editor (`wandel pdf-meta` / MCP `set_metadata` / UI), and Web LQIP Tiny Placeholder Generator (`wandel lqip` / MCP `lqip`). |
 
 ---
 

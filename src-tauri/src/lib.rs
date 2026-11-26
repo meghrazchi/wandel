@@ -32,7 +32,7 @@ pub fn run() {
 
             let mut tray_builder = TrayIconBuilder::new()
                 .menu(&menu)
-                .tooltip("Wandel — Parallel Media Converter")
+                .tooltip("Wandel: Parallel Media Converter")
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(win) = app.get_webview_window("main") {
@@ -130,6 +130,10 @@ pub fn run() {
             commands::extract_video_poster,
             commands::create_animated_gif,
             commands::extract_gif_frames,
+            commands::export_pdf_markdown_file,
+            commands::convert_pdf_two_up,
+            commands::stitch_images,
+            commands::set_pdf_metadata,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Wandel");

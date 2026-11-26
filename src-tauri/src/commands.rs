@@ -930,3 +930,82 @@ pub async fn extract_gif_frames(
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn export_pdf_markdown_file(
+    path: String,
+    output_path: String,
+) -> Result<(usize, u64), String> {
+    let input = PathBuf::from(path);
+    let out = PathBuf::from(output_path);
+    tauri::async_runtime::spawn_blocking(move || {
+        wandel_core::export_pdf_markdown_file(&input, &out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn convert_pdf_two_up(
+    path: String,
+    output_path: String,
+    dpi: Option<u16>,
+) -> Result<(usize, u64), String> {
+    let input = PathBuf::from(path);
+    let out = PathBuf::from(output_path);
+    let d = dpi.unwrap_or(150);
+    tauri::async_runtime::spawn_blocking(move || wandel_core::convert_pdf_two_up(&input, &out, d))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn stitch_images(
+    paths: Vec<String>,
+    output_path: String,
+    vertical: bool,
+    gap_px: Option<u32>,
+    bg_hex: Option<String>,
+    settings: ImageSettings,
+    state: State<'_, AppState>,
+) -> Result<u64, String> {
+    let ffmpeg = state.ffmpeg_path.clone();
+    let inputs: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+    let out = PathBuf::from(output_path);
+    let gap = gap_px.unwrap_or(0);
+    let bg = bg_hex.unwrap_or_else(|| "#ffffff".into());
+    tauri::async_runtime::spawn_blocking(move || {
+        wandel_core::stitch_images(&inputs, &out, vertical, gap, &bg, &settings, ffmpeg.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn set_pdf_metadata(
+    path: String,
+    output_path: String,
+    title: Option<String>,
+    author: Option<String>,
+    subject: Option<String>,
+    keywords: Option<String>,
+) -> Result<u64, String> {
+    let input = PathBuf::from(path);
+    let out = PathBuf::from(output_path);
+    tauri::async_runtime::spawn_blocking(move || {
+        wandel_core::set_pdf_metadata(
+            &input,
+            &out,
+            title.as_deref(),
+            author.as_deref(),
+            subject.as_deref(),
+            keywords.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}

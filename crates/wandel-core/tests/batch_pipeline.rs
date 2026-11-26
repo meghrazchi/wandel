@@ -2236,3 +2236,151 @@ fn v30_multi_format_fanout_export() {
     assert!(out_dir.join("hero.jpg").exists());
     assert!(out_dir.join("hero.avif").exists());
 }
+
+#[test]
+fn v31_pdf_markdown_two_up_and_image_caption() {
+    use wandel_core::image_engine::convert_image;
+    use wandel_core::{
+        convert_pdf_two_up, export_pdf_markdown_file, inspect_pdf, merge_images_to_pdf,
+        stamp_pdf_text, PdfPageFit,
+    };
+
+    let dir = tempdir().unwrap();
+
+    // 1. Image Caption Footer Bar increases height cleanly
+    let img_src = dir.path().join("figure.png");
+    DynamicImage::ImageRgba8(ImageBuffer::from_pixel(320, 200, Rgba([40, 80, 140, 255])))
+        .save(&img_src)
+        .unwrap();
+
+    let captioned_out = dir.path().join("figure_captioned.png");
+    let bytes = convert_image(
+        &img_src,
+        &captioned_out,
+        &ImageSettings {
+            format: ImageFormat::Png,
+            caption_text: Some("Figure 1: Wandel Offline Engine".into()),
+            ..Default::default()
+        },
+        None,
+    )
+    .unwrap();
+    assert!(bytes > 0);
+    let (cw, ch) = image::image_dimensions(&captioned_out).unwrap();
+    assert_eq!(cw, 320);
+    assert!(ch >= 236, "Expected caption bar height >= 36px, got total h={}", ch);
+
+    // 2. Build a 4-page PDF and verify 2-Up imposition -> 2 landscape sheets
+    let p_pdf = dir.path().join("four_pages.pdf");
+    merge_images_to_pdf(
+        &[img_src.clone(), img_src.clone(), img_src.clone(), img_src],
+        &p_pdf,
+        &ImageSettings::default(),
+        PdfPageFit::A4,
+        None,
+    )
+    .unwrap();
+
+    let stamped = dir.path().join("four_stamped.pdf");
+    stamp_pdf_text(&p_pdf, &stamped, "WANDEL_MD_TEST").unwrap();
+
+    let md_out = dir.path().join("four.md");
+    let (md_pages, md_bytes) = export_pdf_markdown_file(&stamped, &md_out).unwrap();
+    assert_eq!(md_pages, 4);
+    assert!(md_bytes > 50);
+    let md_content = std::fs::read_to_string(&md_out).unwrap();
+    assert!(md_content.starts_with("---\nsource:"));
+    assert!(md_content.contains("## Page 1"));
+    assert!(md_content.contains("WANDEL_MD_TEST"));
+
+    let two_up_out = dir.path().join("handout_2up.pdf");
+    let (sheets, two_up_bytes) = convert_pdf_two_up(&p_pdf, &two_up_out, 72).unwrap();
+    assert_eq!(sheets, 2);
+    assert!(two_up_bytes > 500);
+    let (out_pages, _, _, _) = inspect_pdf(&two_up_out);
+    assert_eq!(out_pages, Some(2));
+}
+
+#[test]
+fn v32_stitch_pdf_meta_and_lqip() {
+    use wandel_core::{
+        generate_lqip, merge_images_to_pdf, set_pdf_metadata, stitch_images, PdfPageFit,
+    };
+
+    let dir = tempdir().unwrap();
+    let img_a = dir.path().join("a.png");
+    let img_b = dir.path().join("b.png");
+    DynamicImage::ImageRgba8(ImageBuffer::from_pixel(100, 60, Rgba([220, 60, 60, 255])))
+        .save(&img_a)
+        .unwrap();
+    DynamicImage::ImageRgba8(ImageBuffer::from_pixel(100, 80, Rgba([60, 120, 220, 255])))
+        .save(&img_b)
+        .unwrap();
+
+    // 1. Vertical & Horizontal Full-Resolution Stitch
+    let st_v = dir.path().join("stitch_v.png");
+    stitch_images(
+        &[img_a.clone(), img_b.clone()],
+        &st_v,
+        true,
+        10,
+        "#ffffff",
+        &ImageSettings {
+            format: ImageFormat::Png,
+            ..Default::default()
+        },
+        None,
+    )
+    .unwrap();
+    assert_eq!(image::image_dimensions(&st_v).unwrap(), (100, 150));
+
+    let st_h = dir.path().join("stitch_h.png");
+    stitch_images(
+        &[img_a.clone(), img_b.clone()],
+        &st_h,
+        false,
+        10,
+        "#ffffff",
+        &ImageSettings {
+            format: ImageFormat::Png,
+            ..Default::default()
+        },
+        None,
+    )
+    .unwrap();
+    let (hw, hh) = image::image_dimensions(&st_h).unwrap();
+    assert_eq!(hh, 80);
+    assert!(hw > 200);
+
+    // 2. Lossless PDF Metadata Editor
+    let pdf_in = dir.path().join("in.pdf");
+    merge_images_to_pdf(
+        std::slice::from_ref(&img_a),
+        &pdf_in,
+        &ImageSettings::default(),
+        PdfPageFit::A4,
+        None,
+    )
+    .unwrap();
+    let pdf_meta = dir.path().join("meta.pdf");
+    let bytes = set_pdf_metadata(
+        &pdf_in,
+        &pdf_meta,
+        Some("Wandel Spec v3.2"),
+        Some("Wandel Studio"),
+        Some("Offline Media"),
+        Some("rust,pdf"),
+    )
+    .unwrap();
+    assert!(bytes > 0);
+    let raw_pdf = std::fs::read(&pdf_meta).unwrap();
+    let pdf_lossy = String::from_utf8_lossy(&raw_pdf);
+    assert!(pdf_lossy.contains("Wandel Spec v3.2"));
+    assert!(pdf_lossy.contains("Wandel Studio"));
+
+    // 3. Web LQIP Tiny Placeholder
+    let lqip = generate_lqip(&img_a, 24, None).unwrap();
+    assert!(lqip.data_url.starts_with("data:image/webp;base64,"));
+    assert!(lqip.bytes < 1500);
+    assert!(lqip.width <= 24);
+}

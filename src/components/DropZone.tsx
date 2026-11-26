@@ -39,7 +39,7 @@ export function DropZone({
           : "Drop images, videos, or folders here"}
       </h2>
       <p className="mt-1.5 max-w-sm text-sm text-zinc-500 dark:text-zinc-400">
-        Single file or massive batches — processed in parallel across all CPU
+        Single file or massive batches, processed in parallel across all CPU
         cores and GPU encoders. Press{" "}
         <kbd className="rounded bg-zinc-200 px-1.5 py-0.5 text-[11px] font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
           ⌘V

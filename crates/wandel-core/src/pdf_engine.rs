@@ -1508,6 +1508,247 @@ pub fn convert_pdf_dark_mode(input: &Path, output: &Path, dpi: u16) -> Result<u6
     Ok(final_bytes.len() as u64)
 }
 
+/// Exports a PDF as clean, RAG-ready Markdown (`.md`) with YAML frontmatter and `## Page N` headings.
+/// Returns `(page_count, output_bytes)`.
+pub fn export_pdf_markdown_file(input: &Path, output: &Path) -> Result<(usize, u64)> {
+    let pages = extract_pdf_text(input)?;
+    let page_count = pages.len();
+    let title = input
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Document");
+    let file_name = input
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("document.pdf");
+
+    let mut md = format!(
+        "---\nsource: \"{}\"\npages: {}\n---\n\n# {}\n",
+        file_name.replace('"', "\\\""),
+        page_count,
+        title
+    );
+
+    for (page_num, text) in &pages {
+        md.push_str(&format!("\n## Page {}\n\n", page_num));
+        let cleaned: Vec<&str> = text
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect();
+        if cleaned.is_empty() {
+            md.push_str("_(No extractable text on this page)_\n");
+        } else {
+            md.push_str(&cleaned.join("\n\n"));
+            md.push('\n');
+        }
+    }
+
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(output, md.as_bytes())?;
+    Ok((page_count, md.len() as u64))
+}
+
+/// Imposes pairs of PDF pages side-by-side (2-Up) onto clean landscape sheets in parallel via `hayro` + `rayon`.
+/// Returns `(sheet_count, output_bytes)`.
+pub fn convert_pdf_two_up(input: &Path, output: &Path, dpi: u16) -> Result<(usize, u64)> {
+    let bytes = Arc::new(std::fs::read(input)?);
+    let pdf = HayroPdf::new(Arc::clone(&bytes))
+        .map_err(|e| WandelError::ImageDecode(format!("Failed to parse PDF: {:?}", e)))?;
+    let total_pages = pdf.pages().len();
+    if total_pages == 0 {
+        return Err(WandelError::ImageDecode("PDF contains no pages".into()));
+    }
+
+    let scale = f32::from(dpi.clamp(72, 240)) / 72.0;
+
+    let rendered: Result<Vec<image::RgbImage>> = (0..total_pages)
+        .into_par_iter()
+        .map(|idx| {
+            let thread_pdf = HayroPdf::new(Arc::clone(&bytes))
+                .map_err(|e| WandelError::ImageDecode(format!("PDF parse error: {:?}", e)))?;
+            let page = thread_pdf
+                .pages()
+                .get(idx)
+                .ok_or_else(|| WandelError::ImageDecode("Page index out of bounds".into()))?;
+            let cache = RenderCache::new();
+            let pixmap = hayro::render(
+                page,
+                &cache,
+                &InterpreterSettings::default(),
+                &RenderSettings::default(),
+                &PixmapSettings {
+                    x_scale: scale,
+                    y_scale: scale,
+                    bg_color: WHITE,
+                },
+            );
+            Ok(pixmap_to_dynamic_image(pixmap)?.to_rgb8())
+        })
+        .collect();
+    let rendered = rendered?;
+
+    let gutter = (16.0 * scale).round().max(8.0) as u32;
+    let margin = (18.0 * scale).round().max(10.0) as u32;
+
+    let sheets: Result<Vec<PreparedPdfPage>> = rendered
+        .chunks(2)
+        .collect::<Vec<_>>()
+        .into_par_iter()
+        .map(|pair| {
+            let left = &pair[0];
+            let right = pair.get(1);
+            let slot_w = right.map_or(left.width(), |r| left.width().max(r.width()));
+            let slot_h = right.map_or(left.height(), |r| left.height().max(r.height()));
+            let sheet_w = margin * 2 + slot_w * 2 + gutter;
+            let sheet_h = margin * 2 + slot_h;
+
+            let mut canvas =
+                image::RgbImage::from_pixel(sheet_w, sheet_h, image::Rgb([255, 255, 255]));
+            image::imageops::overlay(&mut canvas, left, i64::from(margin), i64::from(margin));
+            if let Some(r) = right {
+                image::imageops::overlay(
+                    &mut canvas,
+                    r,
+                    i64::from(margin + slot_w + gutter),
+                    i64::from(margin),
+                );
+            }
+
+            let mut jpeg_bytes = Vec::new();
+            let mut enc = jpeg_encoder::Encoder::new(&mut jpeg_bytes, 84);
+            enc.set_progressive(false);
+            enc.encode(
+                canvas.as_raw(),
+                sheet_w as u16,
+                sheet_h as u16,
+                jpeg_encoder::ColorType::Rgb,
+            )
+            .map_err(|e| WandelError::ImageEncode(format!("2-Up PDF JPEG error: {}", e)))?;
+
+            Ok(PreparedPdfPage {
+                jpeg_bytes,
+                width_px: sheet_w,
+                height_px: sheet_h,
+            })
+        })
+        .collect();
+    let sheets = sheets?;
+    let sheet_count = sheets.len();
+
+    let mut out_pdf = Pdf::new();
+    let catalog_id = Ref::new(1);
+    let page_tree_id = Ref::new(2);
+    let mut next_id = 3i32;
+    let mut page_ids = Vec::with_capacity(sheet_count);
+    let mut page_triples = Vec::with_capacity(sheet_count);
+
+    for _ in &sheets {
+        let p_id = Ref::new(next_id);
+        let img_id = Ref::new(next_id + 1);
+        let content_id = Ref::new(next_id + 2);
+        next_id += 3;
+        page_ids.push(p_id);
+        page_triples.push((p_id, img_id, content_id));
+    }
+
+    out_pdf.catalog(catalog_id).pages(page_tree_id);
+    out_pdf
+        .pages(page_tree_id)
+        .kids(page_ids.iter().copied())
+        .count(page_ids.len() as i32);
+
+    for (sheet, (page_id, img_id, content_id)) in sheets.iter().zip(page_triples) {
+        let w = (sheet.width_px as f32) / scale;
+        let h = (sheet.height_px as f32) / scale;
+        let mut page = out_pdf.page(page_id);
+        page.media_box(Rect::new(0.0, 0.0, w, h));
+        page.parent(page_tree_id);
+        page.contents(content_id);
+        page.resources().x_objects().pair(Name(b"Im0"), img_id);
+        page.finish();
+
+        let mut img_xobj = out_pdf.image_xobject(img_id, &sheet.jpeg_bytes);
+        img_xobj.filter(Filter::DctDecode);
+        img_xobj.width(sheet.width_px as i32);
+        img_xobj.height(sheet.height_px as i32);
+        img_xobj.color_space().device_rgb();
+        img_xobj.bits_per_component(8);
+        img_xobj.finish();
+
+        let mut content = Content::new();
+        content.save_state();
+        content.transform([w, 0.0, 0.0, h, 0.0, 0.0]);
+        content.x_object(Name(b"Im0"));
+        content.restore_state();
+        out_pdf.stream(content_id, &content.finish());
+    }
+
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let final_bytes = out_pdf.finish();
+    std::fs::write(output, &final_bytes)?;
+    Ok((sheet_count, final_bytes.len() as u64))
+}
+
+/// Losslessly sets document properties (`/Title`, `/Author`, `/Subject`, `/Keywords`) in a PDF's
+/// `/Info` dictionary without altering or re-encoding any page content.
+pub fn set_pdf_metadata(
+    input: &Path,
+    output: &Path,
+    title: Option<&str>,
+    author: Option<&str>,
+    subject: Option<&str>,
+    keywords: Option<&str>,
+) -> Result<u64> {
+    use lopdf::{Dictionary, Object, StringFormat};
+
+    let mut doc = lopdf::Document::load(input)
+        .map_err(|e| WandelError::ImageDecode(format!("Failed to load PDF: {}", e)))?;
+
+    let info_id = if let Some(id) = doc
+        .trailer
+        .get(b"Info")
+        .ok()
+        .and_then(|o| o.as_reference().ok())
+    {
+        id
+    } else {
+        let new_id = doc.add_object(Object::Dictionary(Dictionary::new()));
+        doc.trailer.set("Info", Object::Reference(new_id));
+        new_id
+    };
+
+    if let Ok(Ok(dict)) = doc.get_object_mut(info_id).map(|o| o.as_dict_mut()) {
+        let set_str = |d: &mut Dictionary, key: &str, val: Option<&str>| {
+            if let Some(v) = val {
+                let trimmed = v.trim();
+                if !trimmed.is_empty() {
+                    d.set(
+                        key,
+                        Object::String(trimmed.as_bytes().to_vec(), StringFormat::Literal),
+                    );
+                }
+            }
+        };
+        set_str(dict, "Title", title);
+        set_str(dict, "Author", author);
+        set_str(dict, "Subject", subject);
+        set_str(dict, "Keywords", keywords);
+    }
+
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    doc.save(output)
+        .map_err(|e| WandelError::ImageEncode(format!("Failed to save PDF metadata: {}", e)))?;
+    let size = std::fs::metadata(output)?.len();
+    Ok(size)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

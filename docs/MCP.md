@@ -20,9 +20,9 @@ wandel mcp --http 127.0.0.1:3847 --token my-secret-token --allowed-dir /path/to/
 ### Local HTTP Endpoints (`--http`)
 
 When started with `--http <addr>` (recommended: loopback `127.0.0.1:<port>`):
-- **`GET /health`** — returns `{ "status": "ok", "serverName": "wandel-mcp", "version": "...", "transport": "http" }`.
-- **`POST /mcp`** — accepts standard JSON-RPC 2.0 MCP requests (`initialize`, `tools/list`, `tools/call`, `resources/*`, `prompts/*`).
-- **`--token <secret>`** — optional bearer auth requiring `Authorization: Bearer <secret>` on every `POST /mcp` call.
+- **`GET /health`**: returns `{ "status": "ok", "serverName": "wandel-mcp", "version": "...", "transport": "http" }`.
+- **`POST /mcp`**: accepts standard JSON-RPC 2.0 MCP requests (`initialize`, `tools/list`, `tools/call`, `resources/*`, `prompts/*`).
+- **`--token <secret>`**: optional bearer auth requiring `Authorization: Bearer <secret>` on every `POST /mcp` call.
 
 ### Client Configuration (Antigravity, Claude Desktop, Cursor, Windsurf)
 

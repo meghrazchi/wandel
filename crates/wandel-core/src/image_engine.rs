@@ -759,6 +759,12 @@ pub fn apply_post_decode_pipeline(
         }
     }
 
+    if let Some(cap) = &settings.caption_text {
+        if !cap.trim().is_empty() {
+            processed = apply_caption_bar(processed, cap.trim())?;
+        }
+    }
+
     Ok(processed)
 }
 
@@ -1099,6 +1105,73 @@ fn flatten_alpha_to_rgb(img: &DynamicImage, bg_hex: Option<&str>) -> image::RgbI
         out.put_pixel(x, y, image::Rgb([r, g, b]));
     }
     out
+}
+
+/// Appends a clean bottom caption card/footer strip with crisp anti-aliased text via `resvg`.
+fn apply_caption_bar(base: DynamicImage, text: &str) -> Result<DynamicImage> {
+    let base_rgba = base.into_rgba8();
+    let (w, h) = base_rgba.dimensions();
+    if w == 0 || h == 0 {
+        return Ok(DynamicImage::ImageRgba8(base_rgba));
+    }
+
+    let bar_h = ((h as f32) * 0.12).round().clamp(36.0, 96.0) as u32;
+    let font_px = ((bar_h as f32) * 0.44).round().clamp(14.0, 38.0);
+    let total_h = h + bar_h;
+
+    let mut canvas = image::RgbaImage::from_pixel(w, total_h, image::Rgba([24, 24, 27, 255]));
+    image::imageops::overlay(&mut canvas, &base_rgba, 0, 0);
+
+    let escaped = text
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;");
+
+    let svg = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{bar_h}">
+            <rect x="0" y="0" width="{w}" height="1" fill="#3f3f46"/>
+            <text x="{cx:.1}" y="{cy:.1}" text-anchor="middle" font-family="sans-serif" font-weight="600" font-size="{fs:.1}" fill="#f4f4f5">{text}</text>
+        </svg>"##,
+        w = w,
+        bar_h = bar_h,
+        cx = w as f32 / 2.0,
+        cy = (bar_h as f32 + font_px * 0.72) / 2.0,
+        fs = font_px,
+        text = escaped,
+    );
+
+    let opt = resvg::usvg::Options {
+        fontdb: cached_fontdb(),
+        ..Default::default()
+    };
+    if let Ok(tree) = resvg::usvg::Tree::from_str(&svg, &opt) {
+        if let Some(mut pixmap) = resvg::tiny_skia::Pixmap::new(w, bar_h) {
+            resvg::render(
+                &tree,
+                resvg::tiny_skia::Transform::identity(),
+                &mut pixmap.as_mut(),
+            );
+            let data = pixmap.data();
+            for y in 0..bar_h {
+                for x in 0..w {
+                    let idx = ((y * w + x) * 4) as usize;
+                    let sa = f32::from(data[idx + 3]) / 255.0;
+                    if sa > 0.001 {
+                        let dst = canvas.get_pixel_mut(x, h + y);
+                        // pixmap is premultiplied RGBA
+                        for c in 0..3 {
+                            let s = f32::from(data[idx + c]);
+                            let d = f32::from(dst[c]);
+                            dst[c] = (s + d * (1.0 - sa)).round().clamp(0.0, 255.0) as u8;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(DynamicImage::ImageRgba8(canvas))
 }
 
 /// Renders a crisp anti-aliased text watermark via `resvg` and composites it onto `base`.
@@ -2038,7 +2111,7 @@ pub struct ResponsiveSetResult {
     pub html_snippet: String,
 }
 
-/// Generates a Responsive Web `srcset` bundle (320w, 640w, 1024w, 1920w — never upscaling)
+/// Generates a Responsive Web `srcset` bundle (320w, 640w, 1024w, 1920w, never upscaling)
 /// in parallel across CPU cores and writes a ready-to-paste `snippet.html`.
 pub fn generate_responsive_set(
     input: &Path,
@@ -2658,6 +2731,134 @@ pub fn extract_gif_frames(
             Ok(dest.to_string_lossy().into_owned())
         })
         .collect()
+}
+
+/// Stitches 2+ images seamlessly vertically or horizontally at full resolution with optional gap & backdrop.
+pub fn stitch_images(
+    inputs: &[PathBuf],
+    output: &Path,
+    vertical: bool,
+    gap_px: u32,
+    bg_hex: &str,
+    settings: &ImageSettings,
+    ffmpeg_path: Option<&Path>,
+) -> Result<u64> {
+    use rayon::prelude::*;
+
+    if inputs.len() < 2 {
+        return Err(WandelError::InvalidSettings(
+            "At least 2 images are required to stitch".into(),
+        ));
+    }
+
+    let decoded: Result<Vec<DynamicImage>> = inputs
+        .par_iter()
+        .map(|p| decode_image(p, &ResizeMode::Original, false, ffmpeg_path))
+        .collect();
+    let imgs = decoded?;
+
+    let bg = parse_hex_rgb(bg_hex);
+    let bg_px = image::Rgba([bg[0], bg[1], bg[2], 255]);
+    let gap = gap_px.min(200);
+
+    let canvas = if vertical {
+        let target_w = imgs.iter().map(|i| i.width()).max().unwrap_or(1).max(1);
+        let scaled: Result<Vec<image::RgbaImage>> = imgs
+            .into_par_iter()
+            .map(|img| {
+                if img.width() == target_w {
+                    Ok(img.into_rgba8())
+                } else {
+                    let ratio = f64::from(target_w) / f64::from(img.width().max(1));
+                    let nh = ((f64::from(img.height()) * ratio).round() as u32).max(1);
+                    Ok(resize_image(
+                        img,
+                        &ResizeMode::Exact {
+                            width: target_w,
+                            height: nh,
+                            keep_aspect_ratio: false,
+                        },
+                        false,
+                    )?
+                    .into_rgba8())
+                }
+            })
+            .collect();
+        let scaled = scaled?;
+        let total_h: u32 = scaled.iter().map(|i| i.height()).sum::<u32>()
+            + gap * (scaled.len().saturating_sub(1) as u32);
+        let mut c = image::RgbaImage::from_pixel(target_w, total_h.max(1), bg_px);
+        let mut y = 0i64;
+        for part in scaled {
+            image::imageops::overlay(&mut c, &part, 0, y);
+            y += i64::from(part.height() + gap);
+        }
+        c
+    } else {
+        let target_h = imgs.iter().map(|i| i.height()).max().unwrap_or(1).max(1);
+        let scaled: Result<Vec<image::RgbaImage>> = imgs
+            .into_par_iter()
+            .map(|img| {
+                if img.height() == target_h {
+                    Ok(img.into_rgba8())
+                } else {
+                    let ratio = f64::from(target_h) / f64::from(img.height().max(1));
+                    let nw = ((f64::from(img.width()) * ratio).round() as u32).max(1);
+                    Ok(resize_image(
+                        img,
+                        &ResizeMode::Exact {
+                            width: nw,
+                            height: target_h,
+                            keep_aspect_ratio: false,
+                        },
+                        false,
+                    )?
+                    .into_rgba8())
+                }
+            })
+            .collect();
+        let scaled = scaled?;
+        let total_w: u32 = scaled.iter().map(|i| i.width()).sum::<u32>()
+            + gap * (scaled.len().saturating_sub(1) as u32);
+        let mut c = image::RgbaImage::from_pixel(total_w.max(1), target_h, bg_px);
+        let mut x = 0i64;
+        for part in scaled {
+            image::imageops::overlay(&mut c, &part, x, 0);
+            x += i64::from(part.width() + gap);
+        }
+        c
+    };
+
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut enc = settings.clone();
+    if !enc.format.can_encode() {
+        enc.format = ImageFormat::Png;
+    }
+    encode_image_with_target(&DynamicImage::ImageRgba8(canvas), &enc, output, ffmpeg_path)
+}
+
+/// Generates an ultra-tiny (< 1 KB) blurred inline Base64 WebP Low-Quality Image Placeholder (LQIP)
+/// for instant zero-CLS web image loading.
+pub fn generate_lqip(
+    input: &Path,
+    max_width: u32,
+    ffmpeg_path: Option<&Path>,
+) -> Result<DataUrlExport> {
+    let w = max_width.clamp(8, 64);
+    let settings = ImageSettings {
+        format: ImageFormat::Webp,
+        quality: 45,
+        resize: ResizeMode::MaxDimensions {
+            width: Some(w),
+            height: Some(w),
+        },
+        blur_sigma: 1.2,
+        never_upscale: true,
+        ..Default::default()
+    };
+    export_image_data_url(input, &settings, ffmpeg_path)
 }
 
 #[cfg(test)]

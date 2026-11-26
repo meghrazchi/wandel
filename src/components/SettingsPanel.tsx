@@ -266,6 +266,9 @@ export function SettingsPanel({
           ...((img.extraFormats?.length ?? 0) > 0
             ? [{ label: `+${img.extraFormats!.length} Extra Format${img.extraFormats!.length === 1 ? "" : "s"}`, clear: () => updateImage({ extraFormats: [] }) }]
             : []),
+          ...(img.captionText?.trim()
+            ? [{ label: "Caption Bar", clear: () => updateImage({ captionText: null }) }]
+            : []),
         ]
       : [
           ...(vid.remuxOnly
@@ -1029,6 +1032,21 @@ export function SettingsPanel({
                 className="flex-1 accent-indigo-600"
               />
               <span className="w-8 text-right">{img.framePaddingPx}px</span>
+            </div>
+            <div className="space-y-1">
+              <label className="block text-[10px] font-medium text-zinc-500">
+                Caption Footer Bar (optional)
+              </label>
+              <input
+                type="text"
+                disabled={disabled}
+                value={img.captionText ?? ""}
+                onChange={(e) =>
+                  updateImage({ captionText: e.target.value || null })
+                }
+                placeholder="e.g. Figure 1: Architecture Overview"
+                className="w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] text-zinc-800 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
+              />
             </div>
             {img.framePaddingPx > 0 && (
               <div className="space-y-2">

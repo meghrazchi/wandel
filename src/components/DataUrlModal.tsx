@@ -79,7 +79,7 @@ export function DataUrlModal({ item, settings, onClose }: DataUrlModalProps) {
             <Code2 className="h-4.5 w-4.5 text-indigo-500" />
             <div className="min-w-0">
               <h3 className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                Base64 / Data URL — {item.fileName}
+                Base64 / Data URL: {item.fileName}
               </h3>
               {data && (
                 <p className="text-[11px] text-zinc-500">

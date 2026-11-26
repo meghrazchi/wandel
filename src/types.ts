@@ -164,6 +164,7 @@ export interface ImageSettings {
   removeBgColor?: string | null;
   removeBgTolerance?: number;
   extraFormats?: ImageFormat[];
+  captionText?: string | null;
 }
 
 export interface VideoSettings {
@@ -445,6 +446,7 @@ export const DEFAULT_SETTINGS: ConversionSettings = {
     removeBgColor: null,
     removeBgTolerance: 24,
     extraFormats: [],
+    captionText: null,
   },
   video: {
     target: { kind: "video", format: "mp4_h264" },

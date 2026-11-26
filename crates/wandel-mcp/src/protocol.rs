@@ -187,6 +187,7 @@ pub fn tool_definitions() -> Value {
                         "description": "Additional image formats to export simultaneously from a single decode (e.g. ['avif', 'jpg']).",
                         "items": { "type": "string" }
                     },
+                    "caption": { "type": "string", "description": "Optional bottom caption bar text rendered below images." },
                     "blurRegions": {
                         "type": "array",
                         "description": "Optional normalized privacy redaction blur boxes [{x, y, width, height}] (0.0..=1.0).",
@@ -234,7 +235,10 @@ pub fn tool_definitions() -> Value {
                             "extract_images",
                             "scrub_metadata",
                             "extract_text",
-                            "dark_mode"
+                            "dark_mode",
+                            "extract_markdown",
+                            "two_up",
+                            "set_metadata"
                         ]
                     },
                     "input": { "type": "string", "description": "Single input PDF path (for split, compress, rotate, reorder, stamp, number, extract_images, scrub_metadata)." },
@@ -279,7 +283,9 @@ pub fn tool_definitions() -> Value {
                             "data_url",
                             "social_kit",
                             "make_gif",
-                            "gif_frames"
+                            "gif_frames",
+                            "stitch",
+                            "lqip"
                         ]
                     },
                     "input": { "type": "string" },

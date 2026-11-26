@@ -176,10 +176,10 @@ export function PdfOrganizerModal({
             </div>
             <div className="min-w-0">
               <h3 className="truncate text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                Organize PDF Pages — {item.fileName}
+                Organize PDF Pages: {item.fileName}
               </h3>
               <p className="text-[11px] text-zinc-500">
-                Drag cards to reorder, rotate individual pages, duplicate, or remove — lossless export
+                Drag cards to reorder, rotate individual pages, duplicate, or remove with lossless export
               </p>
             </div>
           </div>

@@ -484,6 +484,11 @@ where
     if let Some(tol) = args.get("removeBgTolerance").and_then(|v| v.as_u64()) {
         settings.image.remove_bg_tolerance = tol.min(120) as u8;
     }
+    if let Some(cap) = str_arg(args, "caption") {
+        if !cap.trim().is_empty() {
+            settings.image.caption_text = Some(cap.trim().to_string());
+        }
+    }
     if let Some(also) = args.get("alsoFormats").and_then(|v| v.as_array()) {
         for v in also {
             if let Some(s) = v.as_str() {
@@ -802,6 +807,38 @@ fn tool_pdf_ops(ctx: &McpContext, args: &Value) -> ToolCallOutcome {
                 .map(|bytes| json!({ "output": output_str, "bytes": bytes, "dpi": dpi }))
                 .map_err(|e| e.to_string())
         }
+        "extract_markdown" => {
+            let Some(input) = str_arg(args, "input").map(PathBuf::from) else {
+                return ToolCallOutcome::err("'input' is required for extract_markdown");
+            };
+            wandel_core::export_pdf_markdown_file(&input, &output)
+                .map(|(pages, bytes)| json!({ "output": output_str, "pages": pages, "bytes": bytes }))
+                .map_err(|e| e.to_string())
+        }
+        "two_up" => {
+            let Some(input) = str_arg(args, "input").map(PathBuf::from) else {
+                return ToolCallOutcome::err("'input' is required for two_up");
+            };
+            let dpi = args.get("dpi").and_then(|v| v.as_u64()).unwrap_or(150) as u16;
+            wandel_core::convert_pdf_two_up(&input, &output, dpi)
+                .map(|(sheets, bytes)| json!({ "output": output_str, "sheets": sheets, "bytes": bytes, "dpi": dpi }))
+                .map_err(|e| e.to_string())
+        }
+        "set_metadata" => {
+            let Some(input) = str_arg(args, "input").map(PathBuf::from) else {
+                return ToolCallOutcome::err("'input' is required for set_metadata");
+            };
+            wandel_core::set_pdf_metadata(
+                &input,
+                &output,
+                str_arg(args, "text"),
+                str_arg(args, "author"),
+                str_arg(args, "subject"),
+                str_arg(args, "keywords"),
+            )
+            .map(|bytes| json!({ "output": output_str, "bytes": bytes }))
+            .map_err(|e| e.to_string())
+        }
         other => Err(format!("Unknown PDF action '{}'", other)),
     };
 
@@ -1003,6 +1040,37 @@ fn tool_image_tools(ctx: &McpContext, args: &Value) -> ToolCallOutcome {
             };
             wandel_core::extract_gif_frames(&input, &out, img_settings.format)
                 .map(|files| json!({ "outputDir": out, "count": files.len(), "files": files }))
+                .map_err(|e| e.to_string())
+        }
+        "stitch" => {
+            let inputs = path_list_arg(args, "inputs");
+            let Some(out) = str_arg(args, "output").map(PathBuf::from) else {
+                return ToolCallOutcome::err("'output' path is required");
+            };
+            let vertical = str_arg(args, "content")
+                .map(|s| !s.eq_ignore_ascii_case("horizontal"))
+                .unwrap_or(true);
+            let gap = args.get("padding").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            let bg = str_arg(args, "lightHex").unwrap_or("#ffffff");
+            wandel_core::stitch_images(
+                &inputs,
+                &out,
+                vertical,
+                gap,
+                bg,
+                &img_settings,
+                ctx.ffmpeg_path.as_deref(),
+            )
+            .map(|bytes| json!({ "output": out, "count": inputs.len(), "bytes": bytes }))
+            .map_err(|e| e.to_string())
+        }
+        "lqip" => {
+            let Some(input) = str_arg(args, "input").map(PathBuf::from) else {
+                return ToolCallOutcome::err("'input' image path is required");
+            };
+            let w = args.get("sizePx").and_then(|v| v.as_u64()).unwrap_or(24) as u32;
+            wandel_core::generate_lqip(&input, w, ctx.ffmpeg_path.as_deref())
+                .map(|exp| serde_json::to_value(exp).unwrap_or_default())
                 .map_err(|e| e.to_string())
         }
         other => Err(format!("Unknown image action '{}'", other)),

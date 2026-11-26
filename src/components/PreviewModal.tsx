@@ -92,7 +92,7 @@ export function PreviewModal({
         <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5 dark:border-zinc-800">
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Before / After Preview — {item.fileName}
+              Before / After Preview: {item.fileName}
             </h3>
             {preview && (
               <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">

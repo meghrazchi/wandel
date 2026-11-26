@@ -469,6 +469,124 @@ export default function App() {
     }
   }, []);
 
+  const handleStitchImages = useCallback(
+    async (vertical: boolean) => {
+      const imagePaths = items
+        .filter((i) => i.mediaKind === "image")
+        .map((i) => i.path);
+      if (imagePaths.length < 2) return;
+
+      const dest = await save({
+        title: `Save ${vertical ? "Vertical" : "Horizontal"} Stitched Image`,
+        defaultPath: `wandel_stitch_${vertical ? "v" : "h"}.png`,
+        filters: [{ name: "Images", extensions: ["png", "jpg", "webp"] }],
+      });
+      if (!dest) return;
+
+      const ext = dest.split(".").pop()?.toLowerCase();
+      const fmt: ImageFormat =
+        ext === "jpg" || ext === "jpeg"
+          ? "jpg"
+          : ext === "webp"
+          ? "webp"
+          : "png";
+
+      setBatchSummary(`Stitching ${imagePaths.length} images...`);
+      try {
+        const bytes = await invoke<number>("stitch_images", {
+          paths: imagePaths,
+          outputPath: dest,
+          vertical,
+          gapPx: 0,
+          bgHex: "#ffffff",
+          settings: { ...settings.image, format: fmt },
+        });
+        setBatchSummary(`Stitched ${imagePaths.length} images (${(bytes / 1024).toFixed(0)} KB)`);
+        await revealItemInDir(dest);
+      } catch (err) {
+        setBatchSummary(`Image stitch failed: ${String(err)}`);
+      }
+    },
+    [items, settings.image]
+  );
+
+  const handleEditPdfMeta = useCallback(async (item: QueueItem) => {
+    const title = window.prompt("PDF Title (leave blank to skip):", "");
+    if (title === null) return;
+    const author = window.prompt("PDF Author (leave blank to skip):", "");
+    if (author === null) return;
+
+    const dest = await save({
+      title: "Save PDF with Updated Metadata",
+      defaultPath: item.fileName.replace(/\.pdf$/i, "_meta.pdf"),
+      filters: [{ name: "PDF Document", extensions: ["pdf"] }],
+    });
+    if (!dest) return;
+
+    setBatchSummary("Updating PDF metadata...");
+    try {
+      const bytes = await invoke<number>("set_pdf_metadata", {
+        path: item.path,
+        outputPath: dest,
+        title: title.trim() || null,
+        author: author.trim() || null,
+        subject: null,
+        keywords: null,
+      });
+      setBatchSummary(`Updated PDF metadata (${(bytes / 1024).toFixed(0)} KB)`);
+      await revealItemInDir(dest);
+    } catch (err) {
+      setBatchSummary(`PDF metadata edit failed: ${String(err)}`);
+    }
+  }, []);
+
+  const handleExportPdfMarkdown = useCallback(async (item: QueueItem) => {
+    const dest = await save({
+      title: "Export PDF as Markdown",
+      defaultPath: item.fileName.replace(/\.pdf$/i, ".md"),
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    });
+    if (!dest) return;
+
+    setBatchSummary("Exporting PDF to Markdown...");
+    try {
+      const [pages, bytes] = await invoke<[number, number]>("export_pdf_markdown_file", {
+        path: item.path,
+        outputPath: dest,
+      });
+      setBatchSummary(
+        `Exported ${pages} page(s) to Markdown (${(bytes / 1024).toFixed(1)} KB)`
+      );
+      await revealItemInDir(dest);
+    } catch (err) {
+      setBatchSummary(`PDF Markdown export failed: ${String(err)}`);
+    }
+  }, []);
+
+  const handleTwoUpPdf = useCallback(async (item: QueueItem) => {
+    const dest = await save({
+      title: "Save 2-Up Side-by-Side PDF",
+      defaultPath: item.fileName.replace(/\.pdf$/i, "_2up.pdf"),
+      filters: [{ name: "PDF Document", extensions: ["pdf"] }],
+    });
+    if (!dest) return;
+
+    setBatchSummary("Creating 2-Up side-by-side PDF...");
+    try {
+      const [sheets, bytes] = await invoke<[number, number]>("convert_pdf_two_up", {
+        path: item.path,
+        outputPath: dest,
+        dpi: 150,
+      });
+      setBatchSummary(
+        `Saved 2-Up PDF (${sheets} sheet${sheets === 1 ? "" : "s"}, ${(bytes / 1024).toFixed(0)} KB)`
+      );
+      await revealItemInDir(dest);
+    } catch (err) {
+      setBatchSummary(`2-Up PDF failed: ${String(err)}`);
+    }
+  }, []);
+
   const handleDarkModePdf = useCallback(async (item: QueueItem) => {
     const dest = await save({
       title: "Save Dark-Mode PDF",
@@ -2107,6 +2225,7 @@ export default function App() {
               onCompareImages={handleCompareImages}
               onCreateSlideshow={handleCreateSlideshow}
               onCreateAnimatedGif={handleCreateAnimatedGif}
+              onStitchImages={handleStitchImages}
               onCreateSpriteSheet={handleCreateSpriteSheet}
               onMergeVideos={handleMergeVideos}
               onMergePdfs={handleMergePdfs}
@@ -2119,6 +2238,9 @@ export default function App() {
               onNumberPdf={handleNumberPdf}
               onExtractPdfImages={handleExtractPdfImages}
               onExtractPdfText={handleExtractPdfText}
+              onExportPdfMarkdown={handleExportPdfMarkdown}
+              onTwoUpPdf={handleTwoUpPdf}
+              onEditPdfMeta={handleEditPdfMeta}
               onDarkModePdf={handleDarkModePdf}
               onScrubPdf={handleScrubPdf}
               onPaletteItem={setPaletteItem}

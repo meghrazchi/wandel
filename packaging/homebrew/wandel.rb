@@ -1,7 +1,7 @@
 cask "wandel" do
   arch arm: "aarch64", intel: "x64"
 
-  version "3.0.1"
+  version "3.2.0"
   sha256 :no_check
 
   url "https://github.com/meghrazchi/wandel/releases/download/v#{version}/Wandel_#{version}_#{arch}.dmg",
