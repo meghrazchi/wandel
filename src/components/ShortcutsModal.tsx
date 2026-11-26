@@ -31,7 +31,7 @@ export function ShortcutsModal({ hardware, onClose }: ShortcutsModalProps) {
             <WandelIcon className="h-8 w-8 shrink-0" />
             <div>
               <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                Wandel v3.0.0
+                Wandel v3.0.1
               </h3>
               <p className="text-[11px] text-zinc-500">
                 Rust + Tauri v2 Parallel Media Studio

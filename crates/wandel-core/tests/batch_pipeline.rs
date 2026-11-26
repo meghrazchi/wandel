@@ -14,7 +14,12 @@ fn find_bin(name: &str) -> Option<PathBuf> {
     let path_var = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path_var) {
         let p = dir.join(name);
-        if p.is_file() {
+        if p.is_file()
+            && Command::new(&p)
+                .arg("-version")
+                .output()
+                .is_ok_and(|o| o.status.success())
+        {
             return Some(p);
         }
     }

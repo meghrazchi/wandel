@@ -89,8 +89,12 @@ jobs:
           TARGET_TRIPLE="$(rustc -vV | awk '/host:/ { print $2 }')"
           mkdir -p src-tauri/binaries
           if [[ "${RUNNER_OS}" == "Windows" ]]; then
-            cp "$(which ffmpeg)" "src-tauri/binaries/ffmpeg-${TARGET_TRIPLE}.exe"
-            cp "$(which ffprobe)" "src-tauri/binaries/ffprobe-${TARGET_TRIPLE}.exe"
+            REAL_FFMPEG="/c/ProgramData/chocolatey/lib/ffmpeg/tools/ffmpeg/bin/ffmpeg.exe"
+            REAL_FFPROBE="/c/ProgramData/chocolatey/lib/ffmpeg/tools/ffmpeg/bin/ffprobe.exe"
+            [[ -f "${REAL_FFMPEG}" ]] || REAL_FFMPEG="$(which ffmpeg)"
+            [[ -f "${REAL_FFPROBE}" ]] || REAL_FFPROBE="$(which ffprobe)"
+            cp "${REAL_FFMPEG}" "src-tauri/binaries/ffmpeg-${TARGET_TRIPLE}.exe"
+            cp "${REAL_FFPROBE}" "src-tauri/binaries/ffprobe-${TARGET_TRIPLE}.exe"
           else
             cp "$(which ffmpeg)" "src-tauri/binaries/ffmpeg-${TARGET_TRIPLE}"
             cp "$(which ffprobe)" "src-tauri/binaries/ffprobe-${TARGET_TRIPLE}"

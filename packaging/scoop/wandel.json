@@ -1,11 +1,11 @@
 {
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Fast, private, offline Image, Video, Audio, and PDF converter (CLI & MCP Server)",
   "homepage": "https://github.com/meghrazchi/wandel",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/meghrazchi/wandel/releases/download/v3.0.0/wandel-cli-windows-x64.zip"
+      "url": "https://github.com/meghrazchi/wandel/releases/download/v3.0.1/wandel-cli-windows-x64.zip"
     }
   },
   "bin": "wandel.exe",
