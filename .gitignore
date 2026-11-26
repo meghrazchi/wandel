@@ -1,18 +1,37 @@
 # Dependencies
 node_modules/
+
+# Build & Coverage Outputs
 dist/
 coverage/
 lcov.info
 target/
+dist-cli/
+*.profraw
+*.profdata
 
-# Tauri & Sidecar binaries
+# Tauri & Sidecar Binaries
 src-tauri/binaries/ffmpeg-*
 src-tauri/binaries/ffprobe-*
 src-tauri/gen/
 
-# OS & Editor
+# OS & Filesystem
 .DS_Store
+._*
+.Spotlight-V100
+.Trashes
 Thumbs.db
+desktop.ini
+
+# Logs & Environment
 *.log
+npm-debug.log*
+.env
+.env.local
+
+# Editors & IDEs
 .vscode/
 .idea/
+*.swp
+*.swo
+*~

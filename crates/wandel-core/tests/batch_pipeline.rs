@@ -1689,6 +1689,54 @@ fn v20_tiled_text_watermark() {
     assert_eq!(image::image_dimensions(&out).unwrap(), (320, 200));
 }
 
+#[test]
+fn v22_perf_cached_fonts_and_parallel_filters() {
+    use wandel_core::image_engine::convert_image;
+    use wandel_core::{ImageFilterPreset, TextWatermarkSettings, WatermarkPosition};
+
+    let dir = tempdir().unwrap();
+    let src = dir.path().join("hd.png");
+    DynamicImage::ImageRgba8(ImageBuffer::from_fn(640, 360, |x, y| {
+        Rgba([
+            (80 + (x % 80)) as u8,
+            (90 + (y % 70)) as u8,
+            130,
+            255,
+        ])
+    }))
+    .save(&src)
+    .unwrap();
+
+    let settings = ImageSettings {
+        format: ImageFormat::Webp,
+        quality: 80,
+        auto_levels: true,
+        filter_preset: ImageFilterPreset::Warm,
+        saturation: 15.0,
+        vignette_strength: 0.3,
+        corner_radius_percent: 4.0,
+        text_watermark: Some(TextWatermarkSettings {
+            text: "WANDEL FAST".into(),
+            font_size_percent: 4.0,
+            color: "#ffffff".into(),
+            opacity: 0.7,
+            margin_px: 12,
+            position: WatermarkPosition::BottomRight,
+            tiled: true,
+        }),
+        ..Default::default()
+    };
+
+    // First call warms OnceLock fontdb; subsequent calls reuse cached fontdb
+    let out1 = dir.path().join("out1.webp");
+    let out2 = dir.path().join("out2.webp");
+    assert!(convert_image(&src, &out1, &settings, None).unwrap() > 500);
+    let t0 = std::time::Instant::now();
+    assert!(convert_image(&src, &out2, &settings, None).unwrap() > 500);
+    let elapsed = t0.elapsed().as_millis();
+    println!("Cached-font + parallel-filter 640x360 WebP took {} ms", elapsed);
+}
+
 fn run_video_target(
     meta: &wandel_core::FileMetadata,
     target: VideoTarget,

@@ -449,7 +449,7 @@ pub fn apply_rounded_corners(img: DynamicImage, radius_percent: f32) -> DynamicI
     if pct <= 0.1 {
         return img;
     }
-    let mut rgba = img.to_rgba8();
+    let mut rgba = img.into_rgba8();
     let (w, h) = rgba.dimensions();
     let r = (w.min(h) as f32) * (pct / 100.0);
     if r < 1.0 {
@@ -760,8 +760,20 @@ fn apply_frame_and_shadow(
     DynamicImage::ImageRgba8(canvas)
 }
 
+fn cached_fontdb() -> std::sync::Arc<resvg::usvg::fontdb::Database> {
+    static FONTDB: std::sync::OnceLock<std::sync::Arc<resvg::usvg::fontdb::Database>> =
+        std::sync::OnceLock::new();
+    std::sync::Arc::clone(FONTDB.get_or_init(|| {
+        let mut db = resvg::usvg::fontdb::Database::new();
+        db.load_system_fonts();
+        std::sync::Arc::new(db)
+    }))
+}
+
 fn apply_auto_levels(img: DynamicImage) -> DynamicImage {
-    let mut rgba = img.to_rgba8();
+    use rayon::prelude::*;
+
+    let mut rgba = img.into_rgba8();
     let total_px = u64::from(rgba.width()) * u64::from(rgba.height());
     if total_px == 0 {
         return DynamicImage::ImageRgba8(rgba);
@@ -804,18 +816,20 @@ fn apply_auto_levels(img: DynamicImage) -> DynamicImage {
 
     let lo_f = low as f32;
     let scale = 255.0 / (high - low) as f32;
-    for px in rgba.pixels_mut() {
+    rgba.as_mut().par_chunks_exact_mut(4).for_each(|px| {
         px[0] = ((f32::from(px[0]) - lo_f) * scale).round().clamp(0.0, 255.0) as u8;
         px[1] = ((f32::from(px[1]) - lo_f) * scale).round().clamp(0.0, 255.0) as u8;
         px[2] = ((f32::from(px[2]) - lo_f) * scale).round().clamp(0.0, 255.0) as u8;
-    }
+    });
 
     DynamicImage::ImageRgba8(rgba)
 }
 
 fn apply_filter_preset(img: DynamicImage, preset: ImageFilterPreset) -> DynamicImage {
-    let mut rgba = img.to_rgba8();
-    for px in rgba.pixels_mut() {
+    use rayon::prelude::*;
+
+    let mut rgba = img.into_rgba8();
+    rgba.as_mut().par_chunks_exact_mut(4).for_each(|px| {
         let r = px[0] as f32;
         let g = px[1] as f32;
         let b = px[2] as f32;
@@ -843,7 +857,7 @@ fn apply_filter_preset(img: DynamicImage, preset: ImageFilterPreset) -> DynamicI
         px[0] = nr.round().clamp(0.0, 255.0) as u8;
         px[1] = ng.round().clamp(0.0, 255.0) as u8;
         px[2] = nb.round().clamp(0.0, 255.0) as u8;
-    }
+    });
     DynamicImage::ImageRgba8(rgba)
 }
 
@@ -856,29 +870,42 @@ fn apply_pixelate(img: DynamicImage, block: u32) -> DynamicImage {
 }
 
 fn apply_vignette(img: DynamicImage, strength: f32) -> DynamicImage {
-    let mut rgba = img.to_rgba8();
+    use rayon::prelude::*;
+
+    let mut rgba = img.into_rgba8();
     let (w, h) = rgba.dimensions();
+    if w == 0 || h == 0 {
+        return DynamicImage::ImageRgba8(rgba);
+    }
     let cx = w as f32 / 2.0;
     let cy = h as f32 / 2.0;
-    let max_dist = (cx * cx + cy * cy).sqrt().max(1.0);
+    let max_dist_sq = (cx * cx + cy * cy).max(1.0);
+    let row_bytes = (w as usize) * 4;
 
-    for (x, y, px) in rgba.enumerate_pixels_mut() {
-        let dx = x as f32 - cx;
-        let dy = y as f32 - cy;
-        let norm = (dx * dx + dy * dy).sqrt() / max_dist;
-        // Smooth radial darkening toward corners
-        let factor = (1.0 - strength * norm * norm).clamp(0.0, 1.0);
-        px[0] = ((px[0] as f32) * factor).round() as u8;
-        px[1] = ((px[1] as f32) * factor).round() as u8;
-        px[2] = ((px[2] as f32) * factor).round() as u8;
-    }
+    rgba.as_mut()
+        .par_chunks_exact_mut(row_bytes)
+        .enumerate()
+        .for_each(|(y, row)| {
+            let dy = y as f32 - cy;
+            let dy_sq = dy * dy;
+            for (x, px) in row.chunks_exact_mut(4).enumerate() {
+                let dx = x as f32 - cx;
+                let norm_sq = (dx * dx + dy_sq) / max_dist_sq;
+                let factor = (1.0 - strength * norm_sq).clamp(0.0, 1.0);
+                px[0] = ((px[0] as f32) * factor).round() as u8;
+                px[1] = ((px[1] as f32) * factor).round() as u8;
+                px[2] = ((px[2] as f32) * factor).round() as u8;
+            }
+        });
     DynamicImage::ImageRgba8(rgba)
 }
 
 fn adjust_saturation(img: DynamicImage, delta_percent: f32) -> DynamicImage {
+    use rayon::prelude::*;
+
     let factor = (1.0 + delta_percent / 100.0).max(0.0);
-    let mut rgba = img.to_rgba8();
-    for px in rgba.pixels_mut() {
+    let mut rgba = img.into_rgba8();
+    rgba.as_mut().par_chunks_exact_mut(4).for_each(|px| {
         let r = px[0] as f32;
         let g = px[1] as f32;
         let b = px[2] as f32;
@@ -886,7 +913,7 @@ fn adjust_saturation(img: DynamicImage, delta_percent: f32) -> DynamicImage {
         px[0] = (luma + (r - luma) * factor).round().clamp(0.0, 255.0) as u8;
         px[1] = (luma + (g - luma) * factor).round().clamp(0.0, 255.0) as u8;
         px[2] = (luma + (b - luma) * factor).round().clamp(0.0, 255.0) as u8;
-    }
+    });
     DynamicImage::ImageRgba8(rgba)
 }
 
@@ -1018,8 +1045,10 @@ pub fn apply_text_watermark(
         )
     };
 
-    let mut opt = resvg::usvg::Options::default();
-    opt.fontdb_mut().load_system_fonts();
+    let opt = resvg::usvg::Options {
+        fontdb: cached_fontdb(),
+        ..Default::default()
+    };
 
     let tree = resvg::usvg::Tree::from_str(&svg, &opt)
         .map_err(|e| WandelError::ImageEncode(format!("Text watermark SVG error: {}", e)))?;
@@ -2074,8 +2103,10 @@ pub fn create_comparison_image(
             fs = font_px,
             text = escaped,
         );
-        let mut opt = resvg::usvg::Options::default();
-        opt.fontdb_mut().load_system_fonts();
+        let opt = resvg::usvg::Options {
+            fontdb: cached_fontdb(),
+            ..Default::default()
+        };
         if let Ok(tree) = resvg::usvg::Tree::from_str(&svg, &opt) {
             if let Some(mut pixmap) = resvg::tiny_skia::Pixmap::new(pill_w, pill_h) {
                 resvg::render(&tree, resvg::tiny_skia::Transform::identity(), &mut pixmap.as_mut());

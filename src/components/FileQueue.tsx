@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   AlertCircle,
   ArrowDown,
@@ -165,22 +165,26 @@ export function FileQueue({
   ).length;
 
   const q = searchQuery.trim().toLowerCase();
-  const visibleItems = items
-    .filter((item) => {
-      if (filter === "image" && item.mediaKind !== "image" && item.mediaKind !== "pdf")
-        return false;
-      if (filter === "video" && item.mediaKind !== "video" && item.mediaKind !== "audio")
-        return false;
-      if (filter === "failed" && item.status !== "failed") return false;
-      if (q && !item.fileName.toLowerCase().includes(q)) return false;
-      return true;
-    })
-    .sort((a, b) => {
-      if (sortBy === "name") return a.fileName.localeCompare(b.fileName);
-      if (sortBy === "size_desc") return b.sizeBytes - a.sizeBytes;
-      if (sortBy === "size_asc") return a.sizeBytes - b.sizeBytes;
-      return 0;
-    });
+  const visibleItems = useMemo(
+    () =>
+      items
+        .filter((item) => {
+          if (filter === "image" && item.mediaKind !== "image" && item.mediaKind !== "pdf")
+            return false;
+          if (filter === "video" && item.mediaKind !== "video" && item.mediaKind !== "audio")
+            return false;
+          if (filter === "failed" && item.status !== "failed") return false;
+          if (q && !item.fileName.toLowerCase().includes(q)) return false;
+          return true;
+        })
+        .sort((a, b) => {
+          if (sortBy === "name") return a.fileName.localeCompare(b.fileName);
+          if (sortBy === "size_desc") return b.sizeBytes - a.sizeBytes;
+          if (sortBy === "size_asc") return a.sizeBytes - b.sizeBytes;
+          return 0;
+        }),
+    [items, filter, q, sortBy]
+  );
   const totalInputBytes = items.reduce((acc, i) => acc + i.sizeBytes, 0);
   const totalOutputBytes = items.reduce(
     (acc, i) => acc + (i.outputBytes ?? 0),
