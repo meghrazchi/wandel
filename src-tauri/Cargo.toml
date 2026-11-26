@@ -8,6 +8,12 @@ license.workspace = true
 name = "wandel_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# Distinct from the headless CLI binary (`wandel` in crates/wandel-cli) to avoid
+# an output filename collision in target/<profile>/ (breaks CLI E2E tests on Windows).
+[[bin]]
+name = "wandel-desktop"
+path = "src/main.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -21,4 +27,3 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 notify = "8"
 tracing = "0.1"
-tracing-subscriber = "0.3"

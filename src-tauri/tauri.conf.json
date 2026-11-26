@@ -1,7 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Wandel",
-  "version": "2.3.1",
+  "mainBinaryName": "wandel-desktop",
+  "version": "2.3.2",
   "identifier": "app.wandel.converter",
   "build": {
     "beforeDevCommand": "npm run dev",

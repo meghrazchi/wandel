@@ -22,7 +22,12 @@ fn cli_end_to_end_subcommands_and_mcp_stdio() {
 
     // 1. info & inspect
     let info = Command::new(wandel_bin()).arg("info").output().unwrap();
-    assert!(info.status.success());
+    assert!(
+        info.status.success(),
+        "status: {:?}\nstderr: {}",
+        info.status,
+        String::from_utf8_lossy(&info.stderr)
+    );
     assert!(String::from_utf8_lossy(&info.stdout).contains("Wandel CLI"));
 
     let insp = Command::new(wandel_bin())
