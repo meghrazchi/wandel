@@ -15,7 +15,7 @@ import {
   Radio,
   Sun,
   UploadCloud,
-  Wand2,
+  X,
   Zap,
 } from "lucide-react";
 import { AudioPreviewModal } from "./components/AudioPreviewModal";
@@ -33,6 +33,7 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { ShortcutsModal } from "./components/ShortcutsModal";
 import { VideoPreviewModal } from "./components/VideoPreviewModal";
 import { WandelButton } from "./components/WandelButton";
+import { WandelIcon } from "./components/WandelIcon";
 import { WatchFolderModal } from "./components/WatchFolderModal";
 import { t } from "./i18n";
 import {
@@ -1752,9 +1753,7 @@ export default function App() {
       {/* Top Header */}
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-zinc-200 bg-white/80 px-5 backdrop-blur-md dark:border-zinc-800/80 dark:bg-zinc-950/80">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-sm shadow-indigo-500/30">
-            <Wand2 className="h-4 w-4" />
-          </div>
+          <WandelIcon className="h-8 w-8 shrink-0 drop-shadow-sm" />
           <div>
             <h1 className="text-sm font-bold tracking-tight">Wandel</h1>
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
@@ -1764,12 +1763,6 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
-          {batchSummary && (
-            <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-              {batchSummary}
-            </span>
-          )}
-
           {hardware && (
             <div className="hidden lg:flex items-center gap-2 rounded-full border border-zinc-200 bg-zinc-100/80 px-3 py-1 text-[11px] font-medium text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
               <span className="flex items-center gap-1">
@@ -1958,7 +1951,7 @@ export default function App() {
         </section>
 
         {/* Right: Settings & Wandel CTA */}
-        <aside className="flex w-80 shrink-0 flex-col border-l border-zinc-200 bg-white/70 p-5 dark:border-zinc-800/80 dark:bg-zinc-900/40">
+        <aside className="flex w-[340px] shrink-0 flex-col border-l border-zinc-200 bg-white/70 p-4 dark:border-zinc-800/80 dark:bg-zinc-900/40">
           <SettingsPanel
             settings={settings}
             activePreset={activePreset}
@@ -2088,6 +2081,25 @@ export default function App() {
       )}
 
       {showMcpModal && <McpModal onClose={() => setShowMcpModal(false)} />}
+
+      {/* Floating Dismissible Toast Notification */}
+      {batchSummary && (
+        <div
+          role="status"
+          className="fixed bottom-4 left-4 z-40 flex max-w-md items-center gap-2.5 rounded-xl border border-emerald-500/30 bg-white/95 px-3.5 py-2.5 text-xs font-medium text-zinc-800 shadow-lg backdrop-blur-md dark:bg-zinc-900/95 dark:text-zinc-100"
+        >
+          <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+          <span className="truncate">{batchSummary}</span>
+          <button
+            type="button"
+            onClick={() => setBatchSummary(null)}
+            className="ml-1 rounded p-0.5 text-zinc-400 transition hover:bg-zinc-200/70 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 cursor-pointer"
+            aria-label="Dismiss notification"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {paletteItem && (
         <PaletteModal

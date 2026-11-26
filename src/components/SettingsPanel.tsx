@@ -1,8 +1,5 @@
 import { useState } from "react";
 import {
-  ChevronDown,
-  ChevronRight,
-  Cpu,
   Crop,
   Download,
   FileText,
@@ -10,7 +7,9 @@ import {
   FlipHorizontal2,
   FlipVertical2,
   Folder,
+  Frame,
   Image as ImageIcon,
+  Maximize2,
   Plus,
   RotateCcw,
   RotateCw,
@@ -18,10 +17,12 @@ import {
   ShieldCheck,
   Sliders,
   Sparkles,
+  Stamp,
   Trash2,
   Upload,
   Volume2,
   VolumeX,
+  Wand2,
   X,
   Zap,
 } from "lucide-react";
@@ -44,6 +45,7 @@ import {
   VideoPlaybackMode,
   WatermarkPosition,
 } from "../types";
+import { SectionAccordion } from "./SectionAccordion";
 
 interface SettingsPanelProps {
   settings: ConversionSettings;
@@ -71,6 +73,17 @@ interface SettingsPanelProps {
   onPickReplaceAudio: () => void;
 }
 
+type SectionId =
+  | "img_transform"
+  | "img_color"
+  | "img_frame"
+  | "img_watermark"
+  | "vid_trim"
+  | "vid_reframe"
+  | "vid_audio"
+  | "resize"
+  | "output";
+
 export function SettingsPanel({
   settings,
   activePreset,
@@ -97,9 +110,22 @@ export function SettingsPanel({
   onPickReplaceAudio,
 }: SettingsPanelProps) {
   const [manualTab, setManualTab] = useState<"image" | "video">("image");
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>({
+    img_transform: false,
+    img_color: false,
+    img_frame: false,
+    img_watermark: false,
+    vid_trim: false,
+    vid_reframe: false,
+    vid_audio: false,
+    resize: false,
+    output: false,
+  });
   const [savingPreset, setSavingPreset] = useState(false);
   const [newPresetName, setNewPresetName] = useState("");
+
+  const toggleSection = (id: SectionId) =>
+    setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
 
   const activeTab: "image" | "video" =
     imageCount > 0 && videoCount === 0
@@ -138,12 +164,129 @@ export function SettingsPanel({
     else updateVideo({ neverUpscale });
   };
 
+  // Compute active modifier chips & per-section counts so users always see what's enabled
+  const img = settings.image;
+  const vid = settings.video;
+
+  const imgTransformCount =
+    (img.rotate > 0 ? 1 : 0) +
+    (img.flipHorizontal ? 1 : 0) +
+    (img.flipVertical ? 1 : 0) +
+    (img.cropAspect ? 1 : 0) +
+    (img.autoTrimBorder ? 1 : 0) +
+    (img.padAspect ? 1 : 0);
+
+  const imgColorCount =
+    (img.filterPreset !== "none" ? 1 : 0) +
+    (img.grayscale ? 1 : 0) +
+    (img.sharpen ? 1 : 0) +
+    (img.autoLevels ? 1 : 0) +
+    (img.brightness !== 0 ? 1 : 0) +
+    (img.contrast !== 0 ? 1 : 0) +
+    (img.saturation !== 0 ? 1 : 0) +
+    (img.blurSigma > 0 ? 1 : 0) +
+    (img.pixelateBlock > 0 ? 1 : 0) +
+    (img.vignetteStrength > 0 ? 1 : 0);
+
+  const imgFrameCount =
+    (img.cornerRadiusPercent > 0 ? 1 : 0) +
+    (img.framePaddingPx > 0 ? 1 : 0);
+
+  const imgWatermarkCount =
+    (img.watermark ? 1 : 0) + (img.textWatermark ? 1 : 0);
+
+  const vidTrimCount =
+    (vid.trimStartSecs != null ? 1 : 0) +
+    (vid.trimEndSecs != null ? 1 : 0) +
+    (vid.targetSizeMb != null ? 1 : 0) +
+    (vid.maxFps != null ? 1 : 0) +
+    (vid.playbackMode !== "normal" ? 1 : 0) +
+    (vid.speed !== 1 ? 1 : 0);
+
+  const vidReframeCount =
+    (vid.aspectReframe !== "none" ? 1 : 0) +
+    (vid.rotate > 0 ? 1 : 0) +
+    (vid.flipHorizontal ? 1 : 0) +
+    (vid.deinterlace ? 1 : 0) +
+    (vid.videoSharpen ? 1 : 0);
+
+  const vidAudioCount =
+    (vid.muteAudio ? 1 : 0) +
+    (vid.denoiseAudio ? 1 : 0) +
+    (vid.normalizeLoudness ? 1 : 0) +
+    (vid.trimSilence ? 1 : 0) +
+    (vid.audioGainDb !== 0 ? 1 : 0) +
+    (vid.fadeInSecs != null ? 1 : 0) +
+    (vid.fadeOutSecs != null ? 1 : 0) +
+    (vid.subtitlePath ? 1 : 0) +
+    (vid.replaceAudioPath ? 1 : 0) +
+    (vid.watermark ? 1 : 0);
+
+  const outputCount =
+    (settings.output.outputDir ? 1 : 0) +
+    (settings.output.trashOriginals ? 1 : 0) +
+    (settings.output.bundleZip ? 1 : 0) +
+    (settings.output.renameTemplate ? 1 : 0) +
+    (settings.output.suffix ? 1 : 0);
+
+  const activeChips: { label: string; clear: () => void }[] =
+    activeTab === "image"
+      ? [
+          ...(img.rotate > 0
+            ? [{ label: `Rotate ${img.rotate}°`, clear: () => updateImage({ rotate: 0 }) }]
+            : []),
+          ...(img.cropAspect
+            ? [{ label: `Crop ${img.cropAspect}`, clear: () => updateImage({ cropAspect: null }) }]
+            : []),
+          ...(img.autoTrimBorder
+            ? [{ label: "Auto-Trim", clear: () => updateImage({ autoTrimBorder: false }) }]
+            : []),
+          ...(img.autoLevels
+            ? [{ label: "Auto-Levels", clear: () => updateImage({ autoLevels: false }) }]
+            : []),
+          ...(img.filterPreset !== "none"
+            ? [{ label: `Look: ${img.filterPreset}`, clear: () => updateImage({ filterPreset: "none" }) }]
+            : []),
+          ...(img.framePaddingPx > 0
+            ? [{ label: `Frame ${img.framePaddingPx}px`, clear: () => updateImage({ framePaddingPx: 0 }) }]
+            : []),
+          ...(img.textWatermark
+            ? [{ label: img.textWatermark.tiled ? "Tiled Watermark" : "Text Watermark", clear: () => updateImage({ textWatermark: null }) }]
+            : []),
+          ...(img.watermark
+            ? [{ label: "Logo Watermark", clear: () => updateImage({ watermark: null }) }]
+            : []),
+        ]
+      : [
+          ...(vid.remuxOnly
+            ? [{ label: "Fast Remux", clear: () => updateVideo({ remuxOnly: false }) }]
+            : []),
+          ...(vid.aspectReframe !== "none"
+            ? [{ label: `Reframe ${vid.aspectReframe}`, clear: () => updateVideo({ aspectReframe: "none" }) }]
+            : []),
+          ...(vid.playbackMode !== "normal"
+            ? [{ label: vid.playbackMode, clear: () => updateVideo({ playbackMode: "normal" }) }]
+            : []),
+          ...(vid.speed !== 1
+            ? [{ label: `${vid.speed}× Speed`, clear: () => updateVideo({ speed: 1 }) }]
+            : []),
+          ...(vid.denoiseAudio
+            ? [{ label: "Voice Denoise", clear: () => updateVideo({ denoiseAudio: false }) }]
+            : []),
+          ...(vid.audioGainDb !== 0
+            ? [{ label: `${vid.audioGainDb > 0 ? "+" : ""}${vid.audioGainDb}dB`, clear: () => updateVideo({ audioGainDb: 0 }) }]
+            : []),
+          ...(vid.muteAudio
+            ? [{ label: "Muted", clear: () => updateVideo({ muteAudio: false }) }]
+            : []),
+        ];
+
   return (
-    <div className="flex flex-1 flex-col gap-5 overflow-y-auto pr-1">
+    <div className="flex flex-1 flex-col gap-4 overflow-y-auto pr-1">
       {/* Quick Presets */}
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
             <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
             Presets
           </div>
@@ -301,14 +444,32 @@ export function SettingsPanel({
           }`}
         >
           <Film className="h-3.5 w-3.5" />
-          Video & Audio {videoCount > 0 ? `(${videoCount})` : ""}
+          Video &amp; Audio {videoCount > 0 ? `(${videoCount})` : ""}
         </button>
       </div>
 
-      {/* Format Selection */}
+      {/* Active Modifiers Strip (prevents hidden forgotten filters) */}
+      {activeChips.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1 rounded-xl border border-indigo-500/20 bg-indigo-500/5 px-2.5 py-2">
+          {activeChips.map((chip) => (
+            <button
+              key={chip.label}
+              type="button"
+              disabled={disabled}
+              onClick={chip.clear}
+              className="inline-flex items-center gap-1 rounded-md bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 transition hover:bg-indigo-500/25 dark:text-indigo-300 cursor-pointer"
+              title="Click to turn off"
+            >
+              {chip.label}
+              <X className="h-2.5 w-2.5" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Essentials & Progressive-Disclosure Accordions */}
       {activeTab === "image" ? (
-        <div className="space-y-4">
-          {/* PDF → Images Options (shown when PDFs are in queue) */}
+        <div className="space-y-3">
           {pdfCount > 0 && (
             <div className="space-y-2 rounded-xl border border-rose-500/25 bg-rose-500/5 p-3">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400">
@@ -358,6 +519,7 @@ export function SettingsPanel({
             </div>
           )}
 
+          {/* Output Format */}
           <div>
             <label className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
               Output Format
@@ -372,7 +534,7 @@ export function SettingsPanel({
                     updateImage({ format: fmt.value as ImageFormat })
                   }
                   className={`rounded-lg py-1.5 text-[11px] font-semibold transition cursor-pointer disabled:opacity-50 ${
-                    settings.image.format === fmt.value
+                    img.format === fmt.value
                       ? "bg-indigo-600 text-white shadow-sm"
                       : "border border-zinc-200 bg-white text-zinc-700 hover:border-indigo-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
                   }`}
@@ -383,109 +545,101 @@ export function SettingsPanel({
             </div>
           </div>
 
-          {/* Quality / Compression */}
+          {/* Quality / Lossless / Target Size */}
           {imgFormatMeta?.supportsQuality && (
-            <div>
-              <div className="mb-1.5 flex items-center justify-between text-xs">
+            <div className="space-y-2 rounded-xl border border-zinc-200/80 bg-white/70 p-3 dark:border-zinc-800/80 dark:bg-zinc-900/40">
+              <div className="flex items-center justify-between text-xs">
                 <span className="font-medium text-zinc-600 dark:text-zinc-400">
-                  Quality / Compression
+                  Quality
                 </span>
                 <span className="font-semibold text-indigo-600 dark:text-indigo-400">
-                  {settings.image.lossless ? "Lossless" : `${settings.image.quality}%`}
+                  {img.lossless ? "Lossless" : `${img.quality}%`}
                 </span>
               </div>
               <input
                 type="range"
                 min={10}
                 max={100}
-                value={settings.image.quality}
-                disabled={disabled || settings.image.lossless}
+                value={img.quality}
+                disabled={disabled || img.lossless}
                 onChange={(e) =>
                   updateImage({ quality: Number(e.target.value) })
                 }
                 className="w-full accent-indigo-600 disabled:opacity-40"
               />
-              <div className="mt-1 flex justify-between text-[10px] text-zinc-400">
-                <span>Smaller file</span>
-                <span>Balanced</span>
-                <span>Best quality</span>
-              </div>
+              {imgFormatMeta.supportsLossless &&
+                img.format !== "png" &&
+                img.format !== "bmp" &&
+                img.format !== "tiff" && (
+                  <label className="flex items-center justify-between pt-0.5 text-[11px] font-medium text-zinc-600 dark:text-zinc-400 cursor-pointer">
+                    <span>Lossless compression</span>
+                    <input
+                      type="checkbox"
+                      checked={img.lossless}
+                      disabled={disabled}
+                      onChange={(e) =>
+                        updateImage({ lossless: e.target.checked })
+                      }
+                      className="h-3.5 w-3.5 accent-indigo-600"
+                    />
+                  </label>
+                )}
+              {!img.lossless && (
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="text-[11px] text-zinc-500">Max KB</span>
+                  <input
+                    type="number"
+                    min={10}
+                    placeholder="Auto"
+                    disabled={disabled}
+                    value={img.targetSizeKb ?? ""}
+                    onChange={(e) =>
+                      updateImage({
+                        targetSizeKb: e.target.value
+                          ? Number(e.target.value)
+                          : null,
+                      })
+                    }
+                    className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                  />
+                </div>
+              )}
             </div>
           )}
 
-          {imgFormatMeta?.supportsLossless &&
-            settings.image.format !== "png" &&
-            settings.image.format !== "bmp" &&
-            settings.image.format !== "tiff" && (
-              <label className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 cursor-pointer">
-                <span>Lossless compression</span>
-                <input
-                  type="checkbox"
-                  checked={settings.image.lossless}
-                  disabled={disabled}
-                  onChange={(e) => updateImage({ lossless: e.target.checked })}
-                  className="h-4 w-4 accent-indigo-600"
-                />
-              </label>
-            )}
-
-          {/* Target Max File Size (KB) */}
-          {imgFormatMeta?.supportsQuality && !settings.image.lossless && (
-            <div>
-              <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                Target Max Size (KB, optional)
-              </label>
-              <input
-                type="number"
-                min={10}
-                placeholder="e.g. 250 (auto-tunes quality)"
-                disabled={disabled}
-                value={settings.image.targetSizeKb ?? ""}
-                onChange={(e) =>
-                  updateImage({
-                    targetSizeKb: e.target.value ? Number(e.target.value) : null,
-                  })
-                }
-                className="w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-              />
-            </div>
-          )}
-
-          {/* Image Transforms: Rotate, Flip, Aspect Crop */}
-          <div className="space-y-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-              <Crop className="h-3.5 w-3.5" />
-              Transform & Crop
-            </div>
+          {/* Accordion 1: Transform & Crop */}
+          <SectionAccordion
+            title="Transform & Crop"
+            icon={<Crop className="h-3.5 w-3.5" />}
+            open={openSections.img_transform}
+            onToggle={() => toggleSection("img_transform")}
+            activeCount={imgTransformCount}
+          >
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 disabled={disabled}
-                onClick={() =>
-                  updateImage({ rotate: (settings.image.rotate + 90) % 360 })
-                }
-                className={`flex flex-1 items-center justify-center gap-1 rounded-lg border py-1.5 text-[11px] font-semibold transition cursor-pointer ${
-                  settings.image.rotate > 0
+                onClick={() => updateImage({ rotate: (img.rotate + 90) % 360 })}
+                className={`flex flex-1 items-center justify-center gap-1 rounded-lg border py-1.5 text-[11px] font-semibold cursor-pointer ${
+                  img.rotate > 0
                     ? "border-indigo-500 bg-indigo-600 text-white"
                     : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
                 }`}
-                title="Rotate 90° clockwise"
               >
                 <RotateCw className="h-3.5 w-3.5" />
-                {settings.image.rotate}°
+                {img.rotate}°
               </button>
               <button
                 type="button"
                 disabled={disabled}
                 onClick={() =>
-                  updateImage({ flipHorizontal: !settings.image.flipHorizontal })
+                  updateImage({ flipHorizontal: !img.flipHorizontal })
                 }
-                className={`flex flex-1 items-center justify-center gap-1 rounded-lg border py-1.5 text-[11px] font-semibold transition cursor-pointer ${
-                  settings.image.flipHorizontal
+                className={`flex flex-1 items-center justify-center gap-1 rounded-lg border py-1.5 text-[11px] font-semibold cursor-pointer ${
+                  img.flipHorizontal
                     ? "border-indigo-500 bg-indigo-600 text-white"
                     : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
                 }`}
-                title="Flip horizontally"
               >
                 <FlipHorizontal2 className="h-3.5 w-3.5" />
                 Flip H
@@ -493,124 +647,52 @@ export function SettingsPanel({
               <button
                 type="button"
                 disabled={disabled}
-                onClick={() =>
-                  updateImage({ flipVertical: !settings.image.flipVertical })
-                }
-                className={`flex flex-1 items-center justify-center gap-1 rounded-lg border py-1.5 text-[11px] font-semibold transition cursor-pointer ${
-                  settings.image.flipVertical
+                onClick={() => updateImage({ flipVertical: !img.flipVertical })}
+                className={`flex flex-1 items-center justify-center gap-1 rounded-lg border py-1.5 text-[11px] font-semibold cursor-pointer ${
+                  img.flipVertical
                     ? "border-indigo-500 bg-indigo-600 text-white"
                     : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
                 }`}
-                title="Flip vertically"
               >
                 <FlipVertical2 className="h-3.5 w-3.5" />
                 Flip V
               </button>
             </div>
-            <div className="grid grid-cols-6 gap-1">
-              {(
-                [
-                  { id: null, label: "Off" },
-                  { id: "square1x1", label: "1:1" },
-                  { id: "landscape16x9", label: "16:9" },
-                  { id: "portrait9x16", label: "9:16" },
-                  { id: "standard4x3", label: "4:3" },
-                  { id: "photo3x2", label: "3:2" },
-                ] as { id: AspectCrop | null; label: string }[]
-              ).map((c) => (
-                <button
-                  key={c.label}
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => updateImage({ cropAspect: c.id })}
-                  className={`rounded-md py-1 text-[10px] font-semibold transition cursor-pointer ${
-                    settings.image.cropAspect === c.id
-                      ? "bg-indigo-600 text-white"
-                      : "border border-zinc-200 bg-white text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
-                  }`}
-                >
-                  {c.label}
-                </button>
-              ))}
-            </div>
-            <div className="grid grid-cols-3 gap-1.5 pt-1">
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={() => updateImage({ grayscale: !settings.image.grayscale })}
-                className={`rounded-lg border py-1.5 text-[10px] font-semibold transition cursor-pointer ${
-                  settings.image.grayscale
-                    ? "border-indigo-500 bg-indigo-600 text-white"
-                    : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
-                }`}
-              >
-                Grayscale
-              </button>
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={() => updateImage({ sharpen: !settings.image.sharpen })}
-                className={`rounded-lg border py-1.5 text-[10px] font-semibold transition cursor-pointer ${
-                  settings.image.sharpen
-                    ? "border-indigo-500 bg-indigo-600 text-white"
-                    : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
-                }`}
-              >
-                Sharpen
-              </button>
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={() => updateImage({ autoLevels: !settings.image.autoLevels })}
-                className={`rounded-lg border py-1.5 text-[10px] font-semibold transition cursor-pointer ${
-                  settings.image.autoLevels
-                    ? "border-indigo-500 bg-indigo-600 text-white"
-                    : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
-                }`}
-                title="Automatic 1%-99% luminance histogram contrast stretch"
-              >
-                Auto-Levels
-              </button>
-            </div>
 
-            {/* Auto-Trim Borders */}
-            <div className="space-y-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900">
-              <label className="flex items-center justify-between text-xs font-medium text-zinc-700 dark:text-zinc-300 cursor-pointer">
-                <span>Auto-Trim Borders</span>
-                <input
-                  type="checkbox"
-                  checked={settings.image.autoTrimBorder}
-                  disabled={disabled}
-                  onChange={(e) =>
-                    updateImage({ autoTrimBorder: e.target.checked })
-                  }
-                  className="h-4 w-4 accent-indigo-600"
-                />
-              </label>
-              {settings.image.autoTrimBorder && (
-                <div className="flex items-center gap-2 text-[10px] text-zinc-500">
-                  <span className="w-16">Tolerance</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={64}
+            <div>
+              <div className="mb-1 text-[10px] font-semibold text-zinc-500">
+                Center Crop Aspect
+              </div>
+              <div className="grid grid-cols-6 gap-1">
+                {(
+                  [
+                    { id: null, label: "Off" },
+                    { id: "square1x1", label: "1:1" },
+                    { id: "landscape16x9", label: "16:9" },
+                    { id: "portrait9x16", label: "9:16" },
+                    { id: "standard4x3", label: "4:3" },
+                    { id: "photo3x2", label: "3:2" },
+                  ] as { id: AspectCrop | null; label: string }[]
+                ).map((c) => (
+                  <button
+                    key={c.label}
+                    type="button"
                     disabled={disabled}
-                    value={settings.image.autoTrimTolerance}
-                    onChange={(e) =>
-                      updateImage({ autoTrimTolerance: Number(e.target.value) })
-                    }
-                    className="flex-1 accent-indigo-600"
-                  />
-                  <span className="w-6 text-right">
-                    {settings.image.autoTrimTolerance}
-                  </span>
-                </div>
-              )}
+                    onClick={() => updateImage({ cropAspect: c.id })}
+                    className={`rounded-md py-1 text-[10px] font-semibold cursor-pointer ${
+                      img.cropAspect === c.id
+                        ? "bg-indigo-600 text-white"
+                        : "border border-zinc-200 bg-white text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
+                    }`}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Pad to Aspect Ratio (No-Crop Social Fit) & Rounded Corners */}
-            <div className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/50">
-              <div className="text-[10px] font-semibold text-zinc-500">
+            <div>
+              <div className="mb-1 text-[10px] font-semibold text-zinc-500">
                 Pad to Aspect (No-Crop)
               </div>
               <div className="grid grid-cols-6 gap-1">
@@ -629,8 +711,8 @@ export function SettingsPanel({
                     type="button"
                     disabled={disabled}
                     onClick={() => updateImage({ padAspect: c.id })}
-                    className={`rounded-md py-1 text-[10px] font-semibold transition cursor-pointer ${
-                      settings.image.padAspect === c.id
+                    className={`rounded-md py-1 text-[10px] font-semibold cursor-pointer ${
+                      img.padAspect === c.id
                         ? "bg-indigo-600 text-white"
                         : "border border-zinc-200 bg-white text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
                     }`}
@@ -639,90 +721,90 @@ export function SettingsPanel({
                   </button>
                 ))}
               </div>
-              <div className="flex items-center gap-2 pt-1 text-[10px] text-zinc-500">
-                <span className="w-20">Corners</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={50}
-                  disabled={disabled}
-                  value={settings.image.cornerRadiusPercent}
-                  onChange={(e) =>
-                    updateImage({ cornerRadiusPercent: Number(e.target.value) })
-                  }
-                  className="flex-1 accent-indigo-600"
-                />
-                <span className="w-8 text-right">
-                  {settings.image.cornerRadiusPercent}%
-                </span>
-              </div>
+            </div>
 
-              {/* Screenshot Frame & Soft Drop Shadow */}
-              <div className="flex items-center gap-2 pt-1 text-[10px] text-zinc-500">
-                <span className="w-20">Frame Pad</span>
+            <div className="space-y-1.5 rounded-lg border border-zinc-200/80 bg-zinc-50/70 px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-950/40">
+              <label className="flex items-center justify-between text-xs font-medium text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                <span>Auto-Trim Borders</span>
                 <input
-                  type="range"
-                  min={0}
-                  max={80}
-                  step={4}
+                  type="checkbox"
+                  checked={img.autoTrimBorder}
                   disabled={disabled}
-                  value={settings.image.framePaddingPx}
                   onChange={(e) =>
-                    updateImage({ framePaddingPx: Number(e.target.value) })
+                    updateImage({ autoTrimBorder: e.target.checked })
                   }
-                  className="flex-1 accent-indigo-600"
+                  className="h-3.5 w-3.5 accent-indigo-600"
                 />
-                <span className="w-8 text-right">
-                  {settings.image.framePaddingPx}px
-                </span>
-              </div>
-
-              {settings.image.framePaddingPx > 0 && (
-                <div className="space-y-1.5 pt-1">
-                  <div className="grid grid-cols-6 gap-1">
-                    {(
-                      [
-                        { id: "none", label: "Solid", cls: "bg-zinc-300 dark:bg-zinc-700" },
-                        { id: "indigo", label: "Indigo", cls: "bg-gradient-to-br from-indigo-500 to-purple-600" },
-                        { id: "sunset", label: "Sunset", cls: "bg-gradient-to-br from-orange-500 to-pink-500" },
-                        { id: "ocean", label: "Ocean", cls: "bg-gradient-to-br from-cyan-500 to-blue-500" },
-                        { id: "emerald", label: "Mint", cls: "bg-gradient-to-br from-emerald-500 to-teal-500" },
-                        { id: "midnight", label: "Night", cls: "bg-gradient-to-br from-slate-900 to-indigo-900" },
-                      ] as { id: FrameGradient; label: string; cls: string }[]
-                    ).map((g) => (
-                      <button
-                        key={g.id}
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => updateImage({ frameGradient: g.id })}
-                        title={g.label}
-                        className={`h-5 rounded-md ${g.cls} cursor-pointer ${
-                          settings.image.frameGradient === g.id
-                            ? "ring-2 ring-indigo-500 ring-offset-1 dark:ring-offset-zinc-900"
-                            : "opacity-75 hover:opacity-100"
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  <label className="flex items-center gap-2 text-[11px] text-zinc-600 dark:text-zinc-400 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.image.dropShadow}
-                      disabled={disabled}
-                      onChange={(e) =>
-                        updateImage({ dropShadow: e.target.checked })
-                      }
-                      className="h-3.5 w-3.5 accent-indigo-600"
-                    />
-                    Soft drop shadow
-                  </label>
+              </label>
+              {img.autoTrimBorder && (
+                <div className="flex items-center gap-2 text-[10px] text-zinc-500">
+                  <span className="w-16">Tolerance</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={64}
+                    disabled={disabled}
+                    value={img.autoTrimTolerance}
+                    onChange={(e) =>
+                      updateImage({ autoTrimTolerance: Number(e.target.value) })
+                    }
+                    className="flex-1 accent-indigo-600"
+                  />
+                  <span className="w-6 text-right">{img.autoTrimTolerance}</span>
                 </div>
               )}
             </div>
+          </SectionAccordion>
 
-            {/* Color Adjustments: Brightness, Contrast, Saturation */}
-            <div className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/50">
-              <div className="text-[10px] font-semibold text-zinc-500">
+          {/* Accordion 2: Color & Effects */}
+          <SectionAccordion
+            title="Color & Effects"
+            icon={<Sliders className="h-3.5 w-3.5" />}
+            open={openSections.img_color}
+            onToggle={() => toggleSection("img_color")}
+            activeCount={imgColorCount}
+          >
+            <div className="grid grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => updateImage({ grayscale: !img.grayscale })}
+                className={`rounded-lg border py-1.5 text-[10px] font-semibold cursor-pointer ${
+                  img.grayscale
+                    ? "border-indigo-500 bg-indigo-600 text-white"
+                    : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+                }`}
+              >
+                Grayscale
+              </button>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => updateImage({ sharpen: !img.sharpen })}
+                className={`rounded-lg border py-1.5 text-[10px] font-semibold cursor-pointer ${
+                  img.sharpen
+                    ? "border-indigo-500 bg-indigo-600 text-white"
+                    : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+                }`}
+              >
+                Sharpen
+              </button>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => updateImage({ autoLevels: !img.autoLevels })}
+                className={`rounded-lg border py-1.5 text-[10px] font-semibold cursor-pointer ${
+                  img.autoLevels
+                    ? "border-indigo-500 bg-indigo-600 text-white"
+                    : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+                }`}
+              >
+                Auto-Levels
+              </button>
+            </div>
+
+            <div>
+              <div className="mb-1 text-[10px] font-semibold text-zinc-500">
                 Color Look Preset
               </div>
               <div className="grid grid-cols-4 gap-1">
@@ -743,7 +825,7 @@ export function SettingsPanel({
                     disabled={disabled}
                     onClick={() => updateImage({ filterPreset: fp.id })}
                     className={`rounded-md py-1 text-[10px] font-semibold cursor-pointer ${
-                      settings.image.filterPreset === fp.id
+                      img.filterPreset === fp.id
                         ? "bg-indigo-600 text-white"
                         : "border border-zinc-200 bg-white text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
                     }`}
@@ -754,132 +836,34 @@ export function SettingsPanel({
               </div>
             </div>
 
-            <div className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/50">
-              <div className="flex items-center justify-between text-[11px] font-semibold text-zinc-500">
-                <span className="flex items-center gap-1">
-                  <Sliders className="h-3 w-3" />
-                  Color Adjustments
-                </span>
-                {(settings.image.brightness !== 0 ||
-                  settings.image.contrast !== 0 ||
-                  settings.image.saturation !== 0) && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateImage({ brightness: 0, contrast: 0, saturation: 0 })
-                    }
-                    className="text-[10px] text-indigo-500 hover:underline cursor-pointer"
-                  >
-                    Reset
-                  </button>
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2 text-[10px] text-zinc-500">
-                  <span className="w-16">Brightness</span>
+            <div className="space-y-1.5">
+              {[
+                { label: "Brightness", min: -50, max: 50, step: 1, val: img.brightness, set: (v: number) => updateImage({ brightness: v }), disp: `${img.brightness}` },
+                { label: "Contrast", min: -50, max: 50, step: 1, val: img.contrast, set: (v: number) => updateImage({ contrast: v }), disp: `${img.contrast}` },
+                { label: "Saturation", min: -100, max: 100, step: 1, val: img.saturation, set: (v: number) => updateImage({ saturation: v }), disp: `${img.saturation}` },
+                { label: "Blur", min: 0, max: 20, step: 0.5, val: img.blurSigma, set: (v: number) => updateImage({ blurSigma: v }), disp: `${img.blurSigma}` },
+                { label: "Pixelate", min: 0, max: 32, step: 2, val: img.pixelateBlock, set: (v: number) => updateImage({ pixelateBlock: v }), disp: `${img.pixelateBlock}` },
+                { label: "Vignette", min: 0, max: 100, step: 1, val: Math.round(img.vignetteStrength * 100), set: (v: number) => updateImage({ vignetteStrength: v / 100 }), disp: `${Math.round(img.vignetteStrength * 100)}%` },
+              ].map((s) => (
+                <div key={s.label} className="flex items-center gap-2 text-[10px] text-zinc-500">
+                  <span className="w-16">{s.label}</span>
                   <input
                     type="range"
-                    min={-50}
-                    max={50}
+                    min={s.min}
+                    max={s.max}
+                    step={s.step}
                     disabled={disabled}
-                    value={settings.image.brightness}
-                    onChange={(e) =>
-                      updateImage({ brightness: Number(e.target.value) })
-                    }
+                    value={s.val}
+                    onChange={(e) => s.set(Number(e.target.value))}
                     className="flex-1 accent-indigo-600"
                   />
-                  <span className="w-7 text-right">{settings.image.brightness}</span>
+                  <span className="w-8 text-right">{s.disp}</span>
                 </div>
-                <div className="flex items-center gap-2 text-[10px] text-zinc-500">
-                  <span className="w-16">Contrast</span>
-                  <input
-                    type="range"
-                    min={-50}
-                    max={50}
-                    disabled={disabled}
-                    value={settings.image.contrast}
-                    onChange={(e) =>
-                      updateImage({ contrast: Number(e.target.value) })
-                    }
-                    className="flex-1 accent-indigo-600"
-                  />
-                  <span className="w-7 text-right">{settings.image.contrast}</span>
-                </div>
-                <div className="flex items-center gap-2 text-[10px] text-zinc-500">
-                  <span className="w-16">Saturation</span>
-                  <input
-                    type="range"
-                    min={-100}
-                    max={100}
-                    disabled={disabled}
-                    value={settings.image.saturation}
-                    onChange={(e) =>
-                      updateImage({ saturation: Number(e.target.value) })
-                    }
-                    className="flex-1 accent-indigo-600"
-                  />
-                  <span className="w-7 text-right">{settings.image.saturation}</span>
-                </div>
-                <div className="flex items-center gap-2 text-[10px] text-zinc-500">
-                  <span className="w-16">Blur</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={20}
-                    step={0.5}
-                    disabled={disabled}
-                    value={settings.image.blurSigma}
-                    onChange={(e) =>
-                      updateImage({ blurSigma: Number(e.target.value) })
-                    }
-                    className="flex-1 accent-indigo-600"
-                  />
-                  <span className="w-7 text-right">{settings.image.blurSigma}</span>
-                </div>
-                <div className="flex items-center gap-2 text-[10px] text-zinc-500">
-                  <span className="w-16">Pixelate</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={32}
-                    step={2}
-                    disabled={disabled}
-                    value={settings.image.pixelateBlock}
-                    onChange={(e) =>
-                      updateImage({ pixelateBlock: Number(e.target.value) })
-                    }
-                    className="flex-1 accent-indigo-600"
-                  />
-                  <span className="w-7 text-right">
-                    {settings.image.pixelateBlock}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-[10px] text-zinc-500">
-                  <span className="w-16">Vignette</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    disabled={disabled}
-                    value={Math.round(settings.image.vignetteStrength * 100)}
-                    onChange={(e) =>
-                      updateImage({
-                        vignetteStrength: Number(e.target.value) / 100,
-                      })
-                    }
-                    className="flex-1 accent-indigo-600"
-                  />
-                  <span className="w-7 text-right">
-                    {Math.round(settings.image.vignetteStrength * 100)}%
-                  </span>
-                </div>
-              </div>
+              ))}
             </div>
 
-            {/* Background Fill for JPG/BMP */}
-            {(settings.image.format === "jpg" ||
-              settings.image.format === "bmp") && (
-              <div className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-900">
+            {(img.format === "jpg" || img.format === "bmp") && (
+              <div className="flex items-center justify-between pt-1 text-xs">
                 <span className="text-zinc-600 dark:text-zinc-400">
                   Transparency Fill
                 </span>
@@ -891,18 +875,17 @@ export function SettingsPanel({
                       disabled={disabled}
                       onClick={() => updateImage({ backgroundHex: hex })}
                       className={`h-5 w-5 rounded-md border cursor-pointer ${
-                        settings.image.backgroundHex === hex
+                        img.backgroundHex === hex
                           ? "ring-2 ring-indigo-500"
                           : "border-zinc-300 dark:border-zinc-700"
                       }`}
                       style={{ backgroundColor: hex }}
-                      title={hex}
                     />
                   ))}
                   <input
                     type="color"
                     disabled={disabled}
-                    value={settings.image.backgroundHex ?? "#ffffff"}
+                    value={img.backgroundHex ?? "#ffffff"}
                     onChange={(e) =>
                       updateImage({ backgroundHex: e.target.value })
                     }
@@ -911,40 +894,125 @@ export function SettingsPanel({
                 </div>
               </div>
             )}
-          </div>
+          </SectionAccordion>
 
-          {/* Batch Logo & Text Watermark */}
-          <div className="space-y-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                Watermark
-              </span>
-              {settings.image.watermark && (
+          {/* Accordion 3: Beautify & Frame */}
+          <SectionAccordion
+            title="Beautify & Frame"
+            icon={<Frame className="h-3.5 w-3.5" />}
+            open={openSections.img_frame}
+            onToggle={() => toggleSection("img_frame")}
+            activeCount={imgFrameCount}
+          >
+            <div className="flex items-center gap-2 text-[10px] text-zinc-500">
+              <span className="w-20">Corners</span>
+              <input
+                type="range"
+                min={0}
+                max={50}
+                disabled={disabled}
+                value={img.cornerRadiusPercent}
+                onChange={(e) =>
+                  updateImage({ cornerRadiusPercent: Number(e.target.value) })
+                }
+                className="flex-1 accent-indigo-600"
+              />
+              <span className="w-8 text-right">{img.cornerRadiusPercent}%</span>
+            </div>
+            <div className="flex items-center gap-2 text-[10px] text-zinc-500">
+              <span className="w-20">Frame Pad</span>
+              <input
+                type="range"
+                min={0}
+                max={80}
+                step={4}
+                disabled={disabled}
+                value={img.framePaddingPx}
+                onChange={(e) =>
+                  updateImage({ framePaddingPx: Number(e.target.value) })
+                }
+                className="flex-1 accent-indigo-600"
+              />
+              <span className="w-8 text-right">{img.framePaddingPx}px</span>
+            </div>
+            {img.framePaddingPx > 0 && (
+              <div className="space-y-2">
+                <div className="grid grid-cols-6 gap-1">
+                  {(
+                    [
+                      { id: "none", label: "Solid", cls: "bg-zinc-300 dark:bg-zinc-700" },
+                      { id: "indigo", label: "Indigo", cls: "bg-gradient-to-br from-indigo-500 to-purple-600" },
+                      { id: "sunset", label: "Sunset", cls: "bg-gradient-to-br from-orange-500 to-pink-500" },
+                      { id: "ocean", label: "Ocean", cls: "bg-gradient-to-br from-cyan-500 to-blue-500" },
+                      { id: "emerald", label: "Mint", cls: "bg-gradient-to-br from-emerald-500 to-teal-500" },
+                      { id: "midnight", label: "Night", cls: "bg-gradient-to-br from-slate-900 to-indigo-900" },
+                    ] as { id: FrameGradient; label: string; cls: string }[]
+                  ).map((g) => (
+                    <button
+                      key={g.id}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => updateImage({ frameGradient: g.id })}
+                      title={g.label}
+                      className={`h-5 rounded-md ${g.cls} cursor-pointer ${
+                        img.frameGradient === g.id
+                          ? "ring-2 ring-indigo-500 ring-offset-1 dark:ring-offset-zinc-900"
+                          : "opacity-75 hover:opacity-100"
+                      }`}
+                    />
+                  ))}
+                </div>
+                <label className="flex items-center gap-2 text-[11px] text-zinc-600 dark:text-zinc-400 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={img.dropShadow}
+                    disabled={disabled}
+                    onChange={(e) =>
+                      updateImage({ dropShadow: e.target.checked })
+                    }
+                    className="h-3.5 w-3.5 accent-indigo-600"
+                  />
+                  Soft drop shadow
+                </label>
+              </div>
+            )}
+          </SectionAccordion>
+
+          {/* Accordion 4: Watermark */}
+          <SectionAccordion
+            title="Watermark"
+            icon={<Stamp className="h-3.5 w-3.5" />}
+            open={openSections.img_watermark}
+            onToggle={() => toggleSection("img_watermark")}
+            activeCount={imgWatermarkCount}
+          >
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={onPickWatermark}
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-left text-xs text-zinc-700 transition hover:border-indigo-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 cursor-pointer"
+              >
+                <ImageIcon className="h-3.5 w-3.5 shrink-0 text-indigo-500" />
+                <span className="truncate">
+                  {img.watermark
+                    ? img.watermark.imagePath.split(/[\\/]/).pop()
+                    : "Add PNG / SVG logo watermark..."}
+                </span>
+              </button>
+              {img.watermark && (
                 <button
                   type="button"
                   disabled={disabled}
                   onClick={() => updateImage({ watermark: null })}
-                  className="text-[11px] font-medium text-red-500 hover:underline cursor-pointer"
+                  className="rounded-lg p-1.5 text-zinc-400 hover:text-red-500 cursor-pointer"
                 >
-                  Remove
+                  <X className="h-3.5 w-3.5" />
                 </button>
               )}
             </div>
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={onPickWatermark}
-              className="flex w-full items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs text-zinc-700 transition hover:border-indigo-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 cursor-pointer"
-            >
-              <ImageIcon className="h-3.5 w-3.5 shrink-0 text-indigo-500" />
-              <span className="truncate">
-                {settings.image.watermark
-                  ? settings.image.watermark.imagePath.split(/[\\/]/).pop()
-                  : "Add PNG / SVG logo watermark..."}
-              </span>
-            </button>
-            {settings.image.watermark && (
-              <div className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+            {img.watermark && (
+              <div className="space-y-2 rounded-lg border border-zinc-200/80 bg-zinc-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-950/40">
                 <div className="grid grid-cols-5 gap-1">
                   {(
                     [
@@ -961,14 +1029,11 @@ export function SettingsPanel({
                       disabled={disabled}
                       onClick={() =>
                         updateImage({
-                          watermark: {
-                            ...settings.image.watermark!,
-                            position: pos.id,
-                          },
+                          watermark: { ...img.watermark!, position: pos.id },
                         })
                       }
                       className={`rounded py-1 text-[10px] font-semibold cursor-pointer ${
-                        settings.image.watermark?.position === pos.id
+                        img.watermark?.position === pos.id
                           ? "bg-indigo-600 text-white"
                           : "bg-white text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
                       }`}
@@ -977,23 +1042,21 @@ export function SettingsPanel({
                     </button>
                   ))}
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-2 text-[10px] text-zinc-500">
                   <div>
-                    <div className="flex justify-between text-[10px] text-zinc-500">
+                    <div className="flex justify-between">
                       <span>Opacity</span>
-                      <span>
-                        {Math.round(settings.image.watermark.opacity * 100)}%
-                      </span>
+                      <span>{Math.round(img.watermark.opacity * 100)}%</span>
                     </div>
                     <input
                       type="range"
                       min={10}
                       max={100}
-                      value={Math.round(settings.image.watermark.opacity * 100)}
+                      value={Math.round(img.watermark.opacity * 100)}
                       onChange={(e) =>
                         updateImage({
                           watermark: {
-                            ...settings.image.watermark!,
+                            ...img.watermark!,
                             opacity: Number(e.target.value) / 100,
                           },
                         })
@@ -1002,19 +1065,19 @@ export function SettingsPanel({
                     />
                   </div>
                   <div>
-                    <div className="flex justify-between text-[10px] text-zinc-500">
+                    <div className="flex justify-between">
                       <span>Scale</span>
-                      <span>{settings.image.watermark.scalePercent}%</span>
+                      <span>{img.watermark.scalePercent}%</span>
                     </div>
                     <input
                       type="range"
                       min={5}
                       max={50}
-                      value={settings.image.watermark.scalePercent}
+                      value={img.watermark.scalePercent}
                       onChange={(e) =>
                         updateImage({
                           watermark: {
-                            ...settings.image.watermark!,
+                            ...img.watermark!,
                             scalePercent: Number(e.target.value),
                           },
                         })
@@ -1026,12 +1089,11 @@ export function SettingsPanel({
               </div>
             )}
 
-            {/* Text Watermark Input */}
             <input
               type="text"
               placeholder="Or add text watermark (e.g. © 2026 Wandel)..."
               disabled={disabled}
-              value={settings.image.textWatermark?.text ?? ""}
+              value={img.textWatermark?.text ?? ""}
               onChange={(e) => {
                 const val = e.target.value;
                 if (!val) {
@@ -1040,31 +1102,28 @@ export function SettingsPanel({
                   updateImage({
                     textWatermark: {
                       text: val,
-                      fontSizePercent:
-                        settings.image.textWatermark?.fontSizePercent ?? 4,
-                      color: settings.image.textWatermark?.color ?? "#ffffff",
-                      opacity: settings.image.textWatermark?.opacity ?? 0.75,
-                      marginPx: settings.image.textWatermark?.marginPx ?? 20,
-                      position:
-                        settings.image.textWatermark?.position ??
-                        "bottom_right",
-                      tiled: settings.image.textWatermark?.tiled ?? false,
+                      fontSizePercent: img.textWatermark?.fontSizePercent ?? 4,
+                      color: img.textWatermark?.color ?? "#ffffff",
+                      opacity: img.textWatermark?.opacity ?? 0.75,
+                      marginPx: img.textWatermark?.marginPx ?? 20,
+                      position: img.textWatermark?.position ?? "bottom_right",
+                      tiled: img.textWatermark?.tiled ?? false,
                     },
                   });
                 }
               }}
-              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+              className="w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
             />
-            {settings.image.textWatermark && (
-              <label className="flex items-center gap-2 px-1 text-[11px] text-zinc-600 dark:text-zinc-400 cursor-pointer">
+            {img.textWatermark && (
+              <label className="flex items-center gap-2 text-[11px] text-zinc-600 dark:text-zinc-400 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={Boolean(settings.image.textWatermark.tiled)}
+                  checked={Boolean(img.textWatermark.tiled)}
                   disabled={disabled}
                   onChange={(e) =>
                     updateImage({
                       textWatermark: {
-                        ...settings.image.textWatermark!,
+                        ...img.textWatermark!,
                         tiled: e.target.checked,
                       },
                     })
@@ -1074,11 +1133,11 @@ export function SettingsPanel({
                 Tile watermark diagonally across entire image
               </label>
             )}
-          </div>
+          </SectionAccordion>
         </div>
       ) : (
-        <div className="space-y-4">
-          {/* Video / Audio Format */}
+        <div className="space-y-3">
+          {/* Video Format */}
           <div>
             <label className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
               Video Format
@@ -1086,8 +1145,7 @@ export function SettingsPanel({
             <div className="grid grid-cols-2 gap-1.5">
               {VIDEO_OUTPUT_FORMATS.map((fmt) => {
                 const selected =
-                  settings.video.target.kind === "video" &&
-                  settings.video.target.format === fmt.value;
+                  vid.target.kind === "video" && vid.target.format === fmt.value;
                 return (
                   <button
                     key={fmt.value}
@@ -1098,7 +1156,7 @@ export function SettingsPanel({
                         target: { kind: "video", format: fmt.value as VideoFormat },
                       })
                     }
-                    className={`rounded-lg px-2 py-1.5 text-left text-[11px] font-semibold transition cursor-pointer disabled:opacity-50 ${
+                    className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold transition cursor-pointer disabled:opacity-50 ${
                       selected
                         ? "bg-indigo-600 text-white shadow-sm"
                         : "border border-zinc-200 bg-white text-zinc-700 hover:border-indigo-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
@@ -1109,15 +1167,17 @@ export function SettingsPanel({
                 );
               })}
             </div>
+          </div>
 
-            <label className="mb-1.5 mt-3 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+          {/* Extract Audio */}
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
               Extract / Convert Audio
             </label>
-            <div className="grid grid-cols-5 gap-1">
+            <div className="grid grid-cols-3 gap-1.5">
               {AUDIO_OUTPUT_FORMATS.map((fmt) => {
                 const selected =
-                  settings.video.target.kind === "audio" &&
-                  settings.video.target.format === fmt.value;
+                  vid.target.kind === "audio" && vid.target.format === fmt.value;
                 return (
                   <button
                     key={fmt.value}
@@ -1128,7 +1188,7 @@ export function SettingsPanel({
                         target: { kind: "audio", format: fmt.value as AudioFormat },
                       })
                     }
-                    className={`rounded-lg py-1.5 text-[11px] font-semibold transition cursor-pointer disabled:opacity-50 ${
+                    className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold transition cursor-pointer disabled:opacity-50 ${
                       selected
                         ? "bg-violet-600 text-white shadow-sm"
                         : "border border-zinc-200 bg-white text-zinc-700 hover:border-violet-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
@@ -1141,96 +1201,330 @@ export function SettingsPanel({
             </div>
           </div>
 
-          {/* Video Quality */}
-          {settings.video.target.kind === "video" &&
-            settings.video.target.format !== "gif" && (
-              <div>
-                <div className="mb-1.5 flex items-center justify-between text-xs">
-                  <span className="font-medium text-zinc-600 dark:text-zinc-400">
-                    Video Quality
-                  </span>
-                  <span className="font-semibold text-indigo-600 dark:text-indigo-400">
-                    {settings.video.quality}%
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={20}
-                  max={100}
-                  value={settings.video.quality}
-                  disabled={disabled}
-                  onChange={(e) =>
-                    updateVideo({ quality: Number(e.target.value) })
-                  }
-                  className="w-full accent-indigo-600"
-                />
+          {/* Quality + Fast Remux + GPU */}
+          {vid.target.kind === "video" && (
+            <div className="space-y-2 rounded-xl border border-zinc-200/80 bg-white/70 p-3 dark:border-zinc-800/80 dark:bg-zinc-900/40">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium text-zinc-600 dark:text-zinc-400">
+                  Video Quality
+                </span>
+                <span className="font-semibold text-indigo-600 dark:text-indigo-400">
+                  {vid.remuxOnly ? "Lossless Copy" : `${vid.quality}%`}
+                </span>
               </div>
-            )}
-
-          {/* GIF FPS */}
-          {settings.video.target.kind === "video" &&
-            settings.video.target.format === "gif" && (
-              <div>
-                <div className="mb-1.5 flex items-center justify-between text-xs">
-                  <span className="font-medium text-zinc-600 dark:text-zinc-400">
-                    GIF Frame Rate
-                  </span>
-                  <span className="font-semibold text-indigo-600 dark:text-indigo-400">
-                    {settings.video.gifFps} FPS
-                  </span>
-                </div>
+              <input
+                type="range"
+                min={10}
+                max={100}
+                value={vid.quality}
+                disabled={disabled || vid.remuxOnly}
+                onChange={(e) => updateVideo({ quality: Number(e.target.value) })}
+                className="w-full accent-indigo-600 disabled:opacity-40"
+              />
+              <label className="flex items-center justify-between pt-0.5 text-[11px] font-medium text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                <span>Fast Remux (No Re-encode)</span>
                 <input
-                  type="range"
-                  min={8}
-                  max={30}
-                  value={settings.video.gifFps}
+                  type="checkbox"
+                  checked={vid.remuxOnly}
                   disabled={disabled}
-                  onChange={(e) =>
-                    updateVideo({ gifFps: Number(e.target.value) })
-                  }
-                  className="w-full accent-indigo-600"
+                  onChange={(e) => updateVideo({ remuxOnly: e.target.checked })}
+                  className="h-3.5 w-3.5 accent-indigo-600"
                 />
-              </div>
-            )}
+              </label>
+              <label className="flex items-center justify-between text-[11px] font-medium text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                <span className="flex items-center gap-1">
+                  <Zap className="h-3 w-3 text-amber-500" />
+                  GPU ({hardware?.gpuBackendName ?? "Auto"})
+                </span>
+                <input
+                  type="checkbox"
+                  checked={vid.useHardwareAccel}
+                  disabled={disabled || vid.remuxOnly}
+                  onChange={(e) =>
+                    updateVideo({ useHardwareAccel: e.target.checked })
+                  }
+                  className="h-3.5 w-3.5 accent-indigo-600"
+                />
+              </label>
+            </div>
+          )}
 
-          {/* Audio Bitrate & Suite Controls */}
-          {settings.video.target.kind === "audio" && (
-            <div className="space-y-3">
-              {(settings.video.target.format === "mp3" ||
-                settings.video.target.format === "aac" ||
-                settings.video.target.format === "opus") && (
+          {/* Video Accordion 1: Trim, Speed & Loop */}
+          {vid.target.kind === "video" && (
+            <SectionAccordion
+              title="Trim, Speed & Loop"
+              icon={<Scissors className="h-3.5 w-3.5" />}
+              open={openSections.vid_trim}
+              onToggle={() => toggleSection("vid_trim")}
+              activeCount={vidTrimCount}
+            >
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                    Audio Bitrate
+                  <label className="mb-1 block text-[10px] text-zinc-500">
+                    Trim Start (s)
                   </label>
-                  <div className="grid grid-cols-4 gap-1.5">
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    placeholder="0"
+                    disabled={disabled}
+                    value={vid.trimStartSecs ?? ""}
+                    onChange={(e) =>
+                      updateVideo({
+                        trimStartSecs: e.target.value
+                          ? Number(e.target.value)
+                          : null,
+                      })
+                    }
+                    className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-900"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[10px] text-zinc-500">
+                    Trim End (s)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    placeholder="Full"
+                    disabled={disabled}
+                    value={vid.trimEndSecs ?? ""}
+                    onChange={(e) =>
+                      updateVideo({
+                        trimEndSecs: e.target.value
+                          ? Number(e.target.value)
+                          : null,
+                      })
+                    }
+                    className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-900"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[10px] text-zinc-500">
+                    Max Size (MB)
+                  </label>
+                  <input
+                    type="number"
+                    min={0.5}
+                    step={0.5}
+                    placeholder="Auto"
+                    disabled={disabled}
+                    value={vid.targetSizeMb ?? ""}
+                    onChange={(e) =>
+                      updateVideo({
+                        targetSizeMb: e.target.value
+                          ? Number(e.target.value)
+                          : null,
+                      })
+                    }
+                    className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-900"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[10px] text-zinc-500">
+                    Max FPS
+                  </label>
+                  <input
+                    type="number"
+                    min={5}
+                    max={120}
+                    placeholder="Original"
+                    disabled={disabled}
+                    value={vid.maxFps ?? ""}
+                    onChange={(e) =>
+                      updateVideo({
+                        maxFps: e.target.value ? Number(e.target.value) : null,
+                      })
+                    }
+                    className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-900"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-1">
+                {(
+                  [
+                    { id: "normal", label: "Normal" },
+                    { id: "reverse", label: "Reverse" },
+                    { id: "boomerang", label: "Boomerang" },
+                  ] as { id: VideoPlaybackMode; label: string }[]
+                ).map((pm) => (
+                  <button
+                    key={pm.id}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => updateVideo({ playbackMode: pm.id })}
+                    className={`rounded-md py-1 text-[10px] font-semibold cursor-pointer ${
+                      vid.playbackMode === pm.id
+                        ? "bg-indigo-600 text-white"
+                        : "border border-zinc-200 bg-white text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
+                    }`}
+                  >
+                    {pm.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-5 gap-1">
+                {[0.5, 1, 1.5, 2, 4].map((sp) => (
+                  <button
+                    key={sp}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => updateVideo({ speed: sp })}
+                    className={`rounded-md py-1 text-[10px] font-semibold cursor-pointer ${
+                      vid.speed === sp
+                        ? "bg-indigo-600 text-white"
+                        : "border border-zinc-200 bg-white text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
+                    }`}
+                  >
+                    {sp}×
+                  </button>
+                ))}
+              </div>
+            </SectionAccordion>
+          )}
+
+          {/* Video Accordion 2: Reframe & Restore */}
+          {vid.target.kind === "video" &&
+            vid.target.format !== "gif" &&
+            vid.target.format !== "animated_webp" && (
+              <SectionAccordion
+                title="Reframe & Restore"
+                icon={<Wand2 className="h-3.5 w-3.5" />}
+                open={openSections.vid_reframe}
+                onToggle={() => toggleSection("vid_reframe")}
+                activeCount={vidReframeCount}
+              >
+                <div>
+                  <div className="mb-1 text-[10px] font-semibold text-zinc-500">
+                    Blur-Pad Aspect Reframe
+                  </div>
+                  <div className="grid grid-cols-5 gap-1">
+                    {(
+                      [
+                        { id: "none", label: "Off" },
+                        { id: "portrait9x16", label: "9:16" },
+                        { id: "portrait4x5", label: "4:5" },
+                        { id: "square1x1", label: "1:1" },
+                        { id: "landscape16x9", label: "16:9" },
+                      ] as { id: VideoAspectReframe; label: string }[]
+                    ).map((rf) => (
+                      <button
+                        key={rf.id}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => updateVideo({ aspectReframe: rf.id })}
+                        className={`rounded-md py-1 text-[10px] font-semibold cursor-pointer ${
+                          vid.aspectReframe === rf.id
+                            ? "bg-indigo-600 text-white"
+                            : "border border-zinc-200 bg-white text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
+                        }`}
+                      >
+                        {rf.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() =>
+                      updateVideo({ rotate: (vid.rotate + 90) % 360 })
+                    }
+                    className={`flex items-center justify-center gap-1 rounded-lg border py-1.5 text-[11px] font-semibold cursor-pointer ${
+                      vid.rotate > 0
+                        ? "border-indigo-500 bg-indigo-600 text-white"
+                        : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+                    }`}
+                  >
+                    <RotateCw className="h-3 w-3" />
+                    Rotate {vid.rotate}°
+                  </button>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() =>
+                      updateVideo({ flipHorizontal: !vid.flipHorizontal })
+                    }
+                    className={`flex items-center justify-center gap-1 rounded-lg border py-1.5 text-[11px] font-semibold cursor-pointer ${
+                      vid.flipHorizontal
+                        ? "border-indigo-500 bg-indigo-600 text-white"
+                        : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+                    }`}
+                  >
+                    <FlipHorizontal2 className="h-3 w-3" />
+                    Flip H
+                  </button>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() =>
+                      updateVideo({ deinterlace: !vid.deinterlace })
+                    }
+                    className={`rounded-lg border py-1.5 text-[11px] font-semibold cursor-pointer ${
+                      vid.deinterlace
+                        ? "border-indigo-500 bg-indigo-600 text-white"
+                        : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+                    }`}
+                  >
+                    Deinterlace
+                  </button>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() =>
+                      updateVideo({ videoSharpen: !vid.videoSharpen })
+                    }
+                    className={`rounded-lg border py-1.5 text-[11px] font-semibold cursor-pointer ${
+                      vid.videoSharpen
+                        ? "border-indigo-500 bg-indigo-600 text-white"
+                        : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+                    }`}
+                  >
+                    Sharpen
+                  </button>
+                </div>
+              </SectionAccordion>
+            )}
+
+          {/* Video/Audio Accordion 3: Audio & Subtitles */}
+          <SectionAccordion
+            title="Audio, Subtitles & Overlays"
+            icon={<Volume2 className="h-3.5 w-3.5" />}
+            open={openSections.vid_audio}
+            onToggle={() => toggleSection("vid_audio")}
+            activeCount={vidAudioCount}
+          >
+            {vid.target.kind === "audio" && (
+              <div className="space-y-2">
+                {vid.target.format !== "wav" && vid.target.format !== "flac" && (
+                  <div className="grid grid-cols-4 gap-1">
                     {[128, 192, 256, 320].map((br) => (
                       <button
                         key={br}
                         type="button"
                         disabled={disabled}
                         onClick={() => updateVideo({ audioBitrateKbps: br })}
-                        className={`rounded-lg py-1.5 text-[11px] font-semibold transition cursor-pointer ${
-                          settings.video.audioBitrateKbps === br
+                        className={`rounded-md py-1 text-[10px] font-semibold cursor-pointer ${
+                          vid.audioBitrateKbps === br
                             ? "bg-indigo-600 text-white"
-                            : "border border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+                            : "border border-zinc-200 bg-white text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
                         }`}
                       >
                         {br}k
                       </button>
                     ))}
                   </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="mb-1 block text-[11px] text-zinc-500">
-                    Sample Rate
-                  </label>
+                )}
+                <div className="grid grid-cols-2 gap-2">
                   <select
                     disabled={disabled}
-                    value={settings.video.sampleRateHz ?? ""}
+                    value={vid.sampleRateHz ?? ""}
                     onChange={(e) =>
                       updateVideo({
                         sampleRateHz: e.target.value
@@ -1238,91 +1532,22 @@ export function SettingsPanel({
                           : null,
                       })
                     }
-                    className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-900"
                   >
-                    <option value="">Original</option>
+                    <option value="">Original Hz</option>
                     <option value={44100}>44.1 kHz</option>
                     <option value={48000}>48 kHz</option>
                   </select>
-                </div>
-                <div className="flex items-end">
-                  <label className="flex w-full items-center justify-between rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 cursor-pointer">
+                  <label className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-2.5 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-900 cursor-pointer">
                     <span>Mono</span>
                     <input
                       type="checkbox"
-                      checked={settings.video.mono}
+                      checked={vid.mono}
                       disabled={disabled}
                       onChange={(e) => updateVideo({ mono: e.target.checked })}
                       className="h-3.5 w-3.5 accent-indigo-600"
                     />
                   </label>
-                </div>
-              </div>
-
-              <label className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 cursor-pointer">
-                <span className="flex items-center gap-1.5">
-                  <Volume2 className="h-3.5 w-3.5 text-indigo-500" />
-                  Normalize Loudness (EBU R128)
-                </span>
-                <input
-                  type="checkbox"
-                  checked={settings.video.normalizeLoudness}
-                  disabled={disabled}
-                  onChange={(e) =>
-                    updateVideo({ normalizeLoudness: e.target.checked })
-                  }
-                  className="h-4 w-4 accent-indigo-600"
-                />
-              </label>
-
-              <label className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 cursor-pointer">
-                <span>Trim Leading &amp; Trailing Silence</span>
-                <input
-                  type="checkbox"
-                  checked={settings.video.trimSilence}
-                  disabled={disabled}
-                  onChange={(e) =>
-                    updateVideo({ trimSilence: e.target.checked })
-                  }
-                  className="h-4 w-4 accent-indigo-600"
-                />
-              </label>
-
-              <label className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 cursor-pointer">
-                <span>Voice Denoise (FFT Noise Reduction)</span>
-                <input
-                  type="checkbox"
-                  checked={settings.video.denoiseAudio}
-                  disabled={disabled}
-                  onChange={(e) =>
-                    updateVideo({ denoiseAudio: e.target.checked })
-                  }
-                  className="h-4 w-4 accent-indigo-600"
-                />
-              </label>
-
-              {/* Audio Volume Gain (dB) & Speed */}
-              <div className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/50">
-                <div className="flex items-center gap-2 text-[10px] text-zinc-500">
-                  <span className="w-16">Gain (dB)</span>
-                  <input
-                    type="range"
-                    min={-12}
-                    max={12}
-                    step={1}
-                    disabled={disabled}
-                    value={settings.video.audioGainDb}
-                    onChange={(e) =>
-                      updateVideo({ audioGainDb: Number(e.target.value) })
-                    }
-                    className="flex-1 accent-indigo-600"
-                  />
-                  <span className="w-10 text-right">
-                    {settings.video.audioGainDb > 0
-                      ? `+${settings.video.audioGainDb}`
-                      : settings.video.audioGainDb}
-                    dB
-                  </span>
                 </div>
                 <div className="grid grid-cols-5 gap-1">
                   {[0.75, 1, 1.25, 1.5, 2].map((sp) => (
@@ -1332,7 +1557,7 @@ export function SettingsPanel({
                       disabled={disabled}
                       onClick={() => updateVideo({ speed: sp })}
                       className={`rounded-md py-1 text-[10px] font-semibold cursor-pointer ${
-                        settings.video.speed === sp
+                        vid.speed === sp
                           ? "bg-indigo-600 text-white"
                           : "border border-zinc-200 bg-white text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
                       }`}
@@ -1341,20 +1566,14 @@ export function SettingsPanel({
                     </button>
                   ))}
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="mb-1 block text-[11px] text-zinc-500">
-                    Fade In (s)
-                  </label>
+                <div className="grid grid-cols-2 gap-2">
                   <input
                     type="number"
                     min={0}
                     step={0.5}
-                    placeholder="0"
+                    placeholder="Fade In (s)"
                     disabled={disabled}
-                    value={settings.video.fadeInSecs ?? ""}
+                    value={vid.fadeInSecs ?? ""}
                     onChange={(e) =>
                       updateVideo({
                         fadeInSecs: e.target.value
@@ -1362,20 +1581,15 @@ export function SettingsPanel({
                           : null,
                       })
                     }
-                    className="w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-900"
                   />
-                </div>
-                <div>
-                  <label className="mb-1 block text-[11px] text-zinc-500">
-                    Fade Out (s)
-                  </label>
                   <input
                     type="number"
                     min={0}
                     step={0.5}
-                    placeholder="0"
+                    placeholder="Fade Out (s)"
                     disabled={disabled}
-                    value={settings.video.fadeOutSecs ?? ""}
+                    value={vid.fadeOutSecs ?? ""}
                     onChange={(e) =>
                       updateVideo({
                         fadeOutSecs: e.target.value
@@ -1383,425 +1597,175 @@ export function SettingsPanel({
                           : null,
                       })
                     }
-                    className="w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-900"
                   />
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Hardware GPU Acceleration */}
-          {settings.video.target.kind === "video" && (
-            <>
-              <label className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-900 cursor-pointer">
-                <div>
-                  <div className="font-semibold text-zinc-800 dark:text-zinc-200">
-                    Fast Remux (Lossless Copy)
-                  </div>
-                  <div className="text-[10px] text-zinc-500">
-                    Instant container swap without re-encoding
-                  </div>
-                </div>
+            <div className="flex items-center gap-2 text-[10px] text-zinc-500">
+              <span className="w-16">Gain (dB)</span>
+              <input
+                type="range"
+                min={-12}
+                max={12}
+                step={1}
+                disabled={disabled}
+                value={vid.audioGainDb}
+                onChange={(e) =>
+                  updateVideo({ audioGainDb: Number(e.target.value) })
+                }
+                className="flex-1 accent-indigo-600"
+              />
+              <span className="w-10 text-right">
+                {vid.audioGainDb > 0 ? `+${vid.audioGainDb}` : vid.audioGainDb}
+                dB
+              </span>
+            </div>
+
+            <div className="space-y-1.5 text-xs">
+              <label className="flex items-center justify-between text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                <span>Voice Denoise (FFT)</span>
                 <input
                   type="checkbox"
-                  checked={settings.video.remuxOnly}
+                  checked={vid.denoiseAudio}
                   disabled={disabled}
                   onChange={(e) =>
-                    updateVideo({ remuxOnly: e.target.checked })
+                    updateVideo({ denoiseAudio: e.target.checked })
                   }
-                  className="h-4 w-4 accent-indigo-600"
+                  className="h-3.5 w-3.5 accent-indigo-600"
                 />
               </label>
-
-              <label className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-xs dark:border-zinc-800 dark:bg-zinc-900 cursor-pointer">
-                <div className="flex items-center gap-2">
-                  <Zap className="h-4 w-4 text-amber-500" />
-                  <div>
-                    <div className="font-semibold text-zinc-800 dark:text-zinc-200">
-                      GPU Acceleration
-                    </div>
-                    <div className="text-[10px] text-zinc-500">
-                      {hardware?.gpuBackendName ?? "CPU fallback if unavailable"}
-                    </div>
-                  </div>
-                </div>
+              <label className="flex items-center justify-between text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                <span>Normalize Loudness (EBU R128)</span>
                 <input
                   type="checkbox"
-                  checked={settings.video.useHardwareAccel}
-                  disabled={disabled || settings.video.remuxOnly}
+                  checked={vid.normalizeLoudness}
+                  disabled={disabled}
                   onChange={(e) =>
-                    updateVideo({ useHardwareAccel: e.target.checked })
+                    updateVideo({ normalizeLoudness: e.target.checked })
                   }
-                  className="h-4 w-4 accent-indigo-600"
+                  className="h-3.5 w-3.5 accent-indigo-600"
                 />
               </label>
-            </>
-          )}
-
-          {/* Video Target Size, Trim, FPS, Mute */}
-          {settings.video.target.kind === "video" && (
-            <div className="space-y-2.5 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-              <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                <Scissors className="h-3.5 w-3.5" />
-                Trim, FPS & Size Limit
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="mb-1 block text-[11px] text-zinc-500">
-                    Trim Start (s)
-                  </label>
+              {vid.target.kind === "audio" && (
+                <label className="flex items-center justify-between text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                  <span>Trim Silence</span>
                   <input
-                    type="number"
-                    min={0}
-                    step={0.5}
-                    placeholder="0"
+                    type="checkbox"
+                    checked={vid.trimSilence}
                     disabled={disabled}
-                    value={settings.video.trimStartSecs ?? ""}
                     onChange={(e) =>
-                      updateVideo({
-                        trimStartSecs: e.target.value
-                          ? Number(e.target.value)
-                          : null,
-                      })
+                      updateVideo({ trimSilence: e.target.checked })
                     }
-                    className="w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                    className="h-3.5 w-3.5 accent-indigo-600"
                   />
-                </div>
-                <div>
-                  <label className="mb-1 block text-[11px] text-zinc-500">
-                    Trim End (s)
+                </label>
+              )}
+              {vid.target.kind === "video" && (
+                <>
+                  <label className="flex items-center justify-between text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                    <span className="flex items-center gap-1.5">
+                      <VolumeX className="h-3.5 w-3.5 text-zinc-400" />
+                      Mute / Remove Audio
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={vid.muteAudio}
+                      disabled={disabled}
+                      onChange={(e) =>
+                        updateVideo({ muteAudio: e.target.checked })
+                      }
+                      className="h-3.5 w-3.5 accent-indigo-600"
+                    />
                   </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.5}
-                    placeholder="Full"
-                    disabled={disabled}
-                    value={settings.video.trimEndSecs ?? ""}
-                    onChange={(e) =>
-                      updateVideo({
-                        trimEndSecs: e.target.value
-                          ? Number(e.target.value)
-                          : null,
-                      })
-                    }
-                    className="w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="mb-1 block text-[11px] text-zinc-500">
-                    Max Size (MB)
-                  </label>
-                  <input
-                    type="number"
-                    min={0.5}
-                    step={0.5}
-                    placeholder="e.g. 10"
-                    disabled={disabled}
-                    value={settings.video.targetSizeMb ?? ""}
-                    onChange={(e) =>
-                      updateVideo({
-                        targetSizeMb: e.target.value
-                          ? Number(e.target.value)
-                          : null,
-                      })
-                    }
-                    className="w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-[11px] text-zinc-500">
-                    Max FPS
-                  </label>
-                  <input
-                    type="number"
-                    min={5}
-                    max={120}
-                    placeholder="Original"
-                    disabled={disabled}
-                    value={settings.video.maxFps ?? ""}
-                    onChange={(e) =>
-                      updateVideo({
-                        maxFps: e.target.value ? Number(e.target.value) : null,
-                      })
-                    }
-                    className="w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-                  />
-                </div>
-              </div>
-
-              {settings.video.target.format !== "gif" &&
-                settings.video.target.format !== "animated_webp" && (
-                  <>
-                    {/* Social Blur-Pad Aspect Reframe */}
-                    <div>
-                      <div className="mb-1 text-[10px] font-semibold text-zinc-500">
-                        Blur-Pad Aspect Reframe
-                      </div>
-                      <div className="grid grid-cols-5 gap-1">
-                        {(
-                          [
-                            { id: "none", label: "Off" },
-                            { id: "portrait9x16", label: "9:16" },
-                            { id: "portrait4x5", label: "4:5" },
-                            { id: "square1x1", label: "1:1" },
-                            { id: "landscape16x9", label: "16:9" },
-                          ] as { id: VideoAspectReframe; label: string }[]
-                        ).map((rf) => (
-                          <button
-                            key={rf.id}
-                            type="button"
-                            disabled={disabled}
-                            onClick={() => updateVideo({ aspectReframe: rf.id })}
-                            className={`rounded-md py-1 text-[10px] font-semibold cursor-pointer ${
-                              settings.video.aspectReframe === rf.id
-                                ? "bg-indigo-600 text-white"
-                                : "border border-zinc-200 bg-white text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
-                            }`}
-                          >
-                            {rf.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Speed & Playback Mode */}
-                    <div className="grid grid-cols-3 gap-1">
-                      {(
-                        [
-                          { id: "normal", label: "Normal" },
-                          { id: "reverse", label: "Reverse" },
-                          { id: "boomerang", label: "Boomerang" },
-                        ] as { id: VideoPlaybackMode; label: string }[]
-                      ).map((pm) => (
-                        <button
-                          key={pm.id}
-                          type="button"
-                          disabled={disabled}
-                          onClick={() => updateVideo({ playbackMode: pm.id })}
-                          className={`rounded-md py-1 text-[10px] font-semibold cursor-pointer ${
-                            settings.video.playbackMode === pm.id
-                              ? "bg-indigo-600 text-white"
-                              : "border border-zinc-200 bg-white text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
-                          }`}
-                        >
-                          {pm.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="grid grid-cols-5 gap-1">
-                      {[0.5, 1, 1.5, 2, 4].map((sp) => (
-                        <button
-                          key={sp}
-                          type="button"
-                          disabled={disabled}
-                          onClick={() => updateVideo({ speed: sp })}
-                          className={`rounded-md py-1 text-[10px] font-semibold cursor-pointer ${
-                            settings.video.speed === sp
-                              ? "bg-indigo-600 text-white"
-                              : "border border-zinc-200 bg-white text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
-                          }`}
-                        >
-                          {sp}×
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex items-center gap-1">
                       <button
                         type="button"
                         disabled={disabled}
-                        onClick={() =>
-                          updateVideo({
-                            rotate: (settings.video.rotate + 90) % 360,
-                          })
-                        }
-                        className={`flex flex-1 items-center justify-center gap-1 rounded-lg border py-1.5 text-[11px] font-semibold cursor-pointer ${
-                          settings.video.rotate > 0
-                            ? "border-indigo-500 bg-indigo-600 text-white"
-                            : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
-                        }`}
+                        onClick={onPickSubtitle}
+                        className="flex min-w-0 flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1 text-left text-[11px] dark:border-zinc-800 dark:bg-zinc-900 cursor-pointer"
                       >
-                        <RotateCw className="h-3.5 w-3.5" />
-                        Rotate {settings.video.rotate}°
+                        <span className="truncate">
+                          {vid.subtitlePath
+                            ? `Sub: ${vid.subtitlePath.split(/[\\/]/).pop()}`
+                            : "Burn-in subtitles (.srt / .vtt)..."}
+                        </span>
                       </button>
-                      <button
-                        type="button"
-                        disabled={disabled}
-                        onClick={() =>
-                          updateVideo({
-                            flipHorizontal: !settings.video.flipHorizontal,
-                          })
-                        }
-                        className={`flex flex-1 items-center justify-center gap-1 rounded-lg border py-1.5 text-[11px] font-semibold cursor-pointer ${
-                          settings.video.flipHorizontal
-                            ? "border-indigo-500 bg-indigo-600 text-white"
-                            : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
-                        }`}
-                      >
-                        <FlipHorizontal2 className="h-3.5 w-3.5" />
-                        Flip H
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <button
-                        type="button"
-                        disabled={disabled}
-                        onClick={() =>
-                          updateVideo({ deinterlace: !settings.video.deinterlace })
-                        }
-                        className={`rounded-lg border py-1.5 text-[10px] font-semibold cursor-pointer ${
-                          settings.video.deinterlace
-                            ? "border-indigo-500 bg-indigo-600 text-white"
-                            : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
-                        }`}
-                      >
-                        Deinterlace
-                      </button>
-                      <button
-                        type="button"
-                        disabled={disabled}
-                        onClick={() =>
-                          updateVideo({ videoSharpen: !settings.video.videoSharpen })
-                        }
-                        className={`rounded-lg border py-1.5 text-[10px] font-semibold cursor-pointer ${
-                          settings.video.videoSharpen
-                            ? "border-indigo-500 bg-indigo-600 text-white"
-                            : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
-                        }`}
-                      >
-                        Sharpen
-                      </button>
-                      <button
-                        type="button"
-                        disabled={disabled}
-                        onClick={() =>
-                          updateVideo({ denoiseAudio: !settings.video.denoiseAudio })
-                        }
-                        className={`rounded-lg border py-1.5 text-[10px] font-semibold cursor-pointer ${
-                          settings.video.denoiseAudio
-                            ? "border-indigo-500 bg-indigo-600 text-white"
-                            : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
-                        }`}
-                      >
-                        Denoise Mic
-                      </button>
-                    </div>
-
-                    <label className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 cursor-pointer">
-                      <span className="flex items-center gap-1.5">
-                        <VolumeX className="h-3.5 w-3.5 text-zinc-400" />
-                        Mute / Remove audio track
-                      </span>
-                      <input
-                        type="checkbox"
-                        checked={settings.video.muteAudio}
-                        disabled={disabled}
-                        onChange={(e) =>
-                          updateVideo({ muteAudio: e.target.checked })
-                        }
-                        className="h-4 w-4 accent-indigo-600"
-                      />
-                    </label>
-
-                    {/* Subtitle Burn-In & Replace Audio Track */}
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-1.5">
+                      {vid.subtitlePath && (
                         <button
                           type="button"
-                          disabled={disabled}
-                          onClick={onPickSubtitle}
-                          className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-left text-[11px] text-zinc-700 transition hover:border-indigo-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 cursor-pointer"
+                          onClick={() => updateVideo({ subtitlePath: null })}
+                          className="p-1 text-zinc-400 hover:text-red-500 cursor-pointer"
                         >
-                          <span className="truncate">
-                            {settings.video.subtitlePath
-                              ? `Sub: ${settings.video.subtitlePath.split(/[\\/]/).pop()}`
-                              : "Burn-in subtitles (.srt / .vtt)..."}
-                          </span>
+                          <X className="h-3 w-3" />
                         </button>
-                        {settings.video.subtitlePath && (
-                          <button
-                            type="button"
-                            onClick={() => updateVideo({ subtitlePath: null })}
-                            className="rounded-lg p-1.5 text-zinc-400 hover:text-red-500 cursor-pointer"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          disabled={disabled}
-                          onClick={onPickReplaceAudio}
-                          className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-left text-[11px] text-zinc-700 transition hover:border-indigo-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 cursor-pointer"
-                        >
-                          <span className="truncate">
-                            {settings.video.replaceAudioPath
-                              ? `Audio: ${settings.video.replaceAudioPath.split(/[\\/]/).pop()}`
-                              : "Replace / add audio track..."}
-                          </span>
-                        </button>
-                        {settings.video.replaceAudioPath && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateVideo({ replaceAudioPath: null })
-                            }
-                            className="rounded-lg p-1.5 text-zinc-400 hover:text-red-500 cursor-pointer"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          disabled={disabled}
-                          onClick={onPickVideoWatermark}
-                          className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-left text-[11px] text-zinc-700 transition hover:border-indigo-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 cursor-pointer"
-                        >
-                          <span className="truncate">
-                            {settings.video.watermark
-                              ? `Logo: ${settings.video.watermark.imagePath.split(/[\\/]/).pop()}`
-                              : "Add video logo watermark..."}
-                          </span>
-                        </button>
-                        {settings.video.watermark && (
-                          <button
-                            type="button"
-                            onClick={() => updateVideo({ watermark: null })}
-                            className="rounded-lg p-1.5 text-zinc-400 hover:text-red-500 cursor-pointer"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
+                      )}
                     </div>
-                  </>
-                )}
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={onPickReplaceAudio}
+                        className="flex min-w-0 flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1 text-left text-[11px] dark:border-zinc-800 dark:bg-zinc-900 cursor-pointer"
+                      >
+                        <span className="truncate">
+                          {vid.replaceAudioPath
+                            ? `Audio: ${vid.replaceAudioPath.split(/[\\/]/).pop()}`
+                            : "Replace / add audio track..."}
+                        </span>
+                      </button>
+                      {vid.replaceAudioPath && (
+                        <button
+                          type="button"
+                          onClick={() => updateVideo({ replaceAudioPath: null })}
+                          className="p-1 text-zinc-400 hover:text-red-500 cursor-pointer"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={onPickVideoWatermark}
+                        className="flex min-w-0 flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1 text-left text-[11px] dark:border-zinc-800 dark:bg-zinc-900 cursor-pointer"
+                      >
+                        <span className="truncate">
+                          {vid.watermark
+                            ? `Logo: ${vid.watermark.imagePath.split(/[\\/]/).pop()}`
+                            : "Add video logo watermark..."}
+                        </span>
+                      </button>
+                      {vid.watermark && (
+                        <button
+                          type="button"
+                          onClick={() => updateVideo({ watermark: null })}
+                          className="p-1 text-zinc-400 hover:text-red-500 cursor-pointer"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
-          )}
+          </SectionAccordion>
         </div>
       )}
 
-      {/* Resize Section (hidden for Audio extraction) */}
-      {!(
-        activeTab === "video" && settings.video.target.kind === "audio"
-      ) && (
-        <div className="space-y-2.5 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-          <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-            Resize
-          </div>
-
+      {/* Shared Accordion: Resize */}
+      {!(activeTab === "video" && vid.target.kind === "audio") && (
+        <SectionAccordion
+          title="Resize"
+          icon={<Maximize2 className="h-3.5 w-3.5" />}
+          open={openSections.resize}
+          onToggle={() => toggleSection("resize")}
+          activeCount={currentResize.mode !== "original" ? 1 : 0}
+        >
           <div className="grid grid-cols-4 gap-1 rounded-xl bg-zinc-200/70 p-1 dark:bg-zinc-900">
             {(
               [
@@ -1832,7 +1796,7 @@ export function SettingsPanel({
                     });
                   else setResize({ mode: "percentage", percent: 50 });
                 }}
-                className={`rounded-lg py-1 text-[11px] font-semibold transition cursor-pointer ${
+                className={`rounded-lg py-1 text-[11px] font-semibold cursor-pointer ${
                   currentResize.mode === opt.id
                     ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100"
                     : "text-zinc-500 dark:text-zinc-400"
@@ -1845,86 +1809,66 @@ export function SettingsPanel({
 
           {currentResize.mode === "max_dimensions" && (
             <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="mb-1 block text-[11px] text-zinc-500">
-                  Max Width (px)
-                </label>
-                <input
-                  type="number"
-                  min={16}
-                  placeholder="Auto"
-                  disabled={disabled}
-                  value={currentResize.width ?? ""}
-                  onChange={(e) =>
-                    setResize({
-                      ...currentResize,
-                      width: e.target.value ? Number(e.target.value) : null,
-                    })
-                  }
-                  className="w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] text-zinc-500">
-                  Max Height (px)
-                </label>
-                <input
-                  type="number"
-                  min={16}
-                  placeholder="Auto"
-                  disabled={disabled}
-                  value={currentResize.height ?? ""}
-                  onChange={(e) =>
-                    setResize({
-                      ...currentResize,
-                      height: e.target.value ? Number(e.target.value) : null,
-                    })
-                  }
-                  className="w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-                />
-              </div>
+              <input
+                type="number"
+                min={16}
+                placeholder="Max Width"
+                disabled={disabled}
+                value={currentResize.width ?? ""}
+                onChange={(e) =>
+                  setResize({
+                    ...currentResize,
+                    width: e.target.value ? Number(e.target.value) : null,
+                  })
+                }
+                className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs dark:border-zinc-800 dark:bg-zinc-900"
+              />
+              <input
+                type="number"
+                min={16}
+                placeholder="Max Height"
+                disabled={disabled}
+                value={currentResize.height ?? ""}
+                onChange={(e) =>
+                  setResize({
+                    ...currentResize,
+                    height: e.target.value ? Number(e.target.value) : null,
+                  })
+                }
+                className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs dark:border-zinc-800 dark:bg-zinc-900"
+              />
             </div>
           )}
 
           {currentResize.mode === "exact" && (
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="mb-1 block text-[11px] text-zinc-500">
-                    Width (px)
-                  </label>
-                  <input
-                    type="number"
-                    min={16}
-                    disabled={disabled}
-                    value={currentResize.width}
-                    onChange={(e) =>
-                      setResize({
-                        ...currentResize,
-                        width: Math.max(16, Number(e.target.value) || 16),
-                      })
-                    }
-                    className="w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-[11px] text-zinc-500">
-                    Height (px)
-                  </label>
-                  <input
-                    type="number"
-                    min={16}
-                    disabled={disabled}
-                    value={currentResize.height}
-                    onChange={(e) =>
-                      setResize({
-                        ...currentResize,
-                        height: Math.max(16, Number(e.target.value) || 16),
-                      })
-                    }
-                    className="w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-                  />
-                </div>
+                <input
+                  type="number"
+                  min={16}
+                  disabled={disabled}
+                  value={currentResize.width}
+                  onChange={(e) =>
+                    setResize({
+                      ...currentResize,
+                      width: Math.max(16, Number(e.target.value) || 16),
+                    })
+                  }
+                  className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs dark:border-zinc-800 dark:bg-zinc-900"
+                />
+                <input
+                  type="number"
+                  min={16}
+                  disabled={disabled}
+                  value={currentResize.height}
+                  onChange={(e) =>
+                    setResize({
+                      ...currentResize,
+                      height: Math.max(16, Number(e.target.value) || 16),
+                    })
+                  }
+                  className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs dark:border-zinc-800 dark:bg-zinc-900"
+                />
               </div>
               <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer">
                 <input
@@ -1982,53 +1926,23 @@ export function SettingsPanel({
               Don't upscale smaller files
             </label>
           )}
-        </div>
+        </SectionAccordion>
       )}
 
-      {/* Privacy / Metadata Stripping */}
-      <label className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-xs dark:border-zinc-800 dark:bg-zinc-900 cursor-pointer">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="h-4 w-4 text-emerald-500" />
-          <div>
-            <div className="font-semibold text-zinc-800 dark:text-zinc-200">
-              Strip EXIF & Metadata
-            </div>
-            <div className="text-[10px] text-zinc-500">
-              Removes GPS, camera & container tags
-            </div>
-          </div>
-        </div>
-        <input
-          type="checkbox"
-          checked={
-            activeTab === "image"
-              ? settings.image.stripMetadata
-              : settings.video.stripMetadata
-          }
-          disabled={disabled}
-          onChange={(e) => {
-            if (activeTab === "image") {
-              updateImage({ stripMetadata: e.target.checked });
-            } else {
-              updateVideo({ stripMetadata: e.target.checked });
-            }
-          }}
-          className="h-4 w-4 accent-indigo-600"
-        />
-      </label>
-
-      {/* Output Folder */}
-      <div className="space-y-2 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-        <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-          Output Folder
-        </div>
+      {/* Shared Accordion: Output, Privacy & Automation */}
+      <SectionAccordion
+        title="Output & Automation"
+        icon={<Folder className="h-3.5 w-3.5" />}
+        open={openSections.output}
+        onToggle={() => toggleSection("output")}
+        activeCount={outputCount}
+      >
         <div className="flex items-center gap-1.5">
           <button
             type="button"
             disabled={disabled}
             onClick={onPickOutputDir}
-            className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs text-zinc-700 transition hover:border-indigo-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 cursor-pointer disabled:opacity-50"
-            title={settings.output.outputDir ?? "Same folder as source"}
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-left text-xs text-zinc-700 transition hover:border-indigo-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 cursor-pointer"
           >
             <Folder className="h-3.5 w-3.5 shrink-0 text-indigo-500" />
             <span className="truncate">
@@ -2040,140 +1954,128 @@ export function SettingsPanel({
               type="button"
               disabled={disabled}
               onClick={() => updateOutput({ outputDir: null })}
-              className="rounded-xl border border-zinc-200 p-2 text-zinc-500 transition hover:bg-zinc-100 dark:border-zinc-800 dark:hover:bg-zinc-800 cursor-pointer"
-              title="Reset to same folder as source"
+              className="rounded-lg border border-zinc-200 p-1.5 text-zinc-500 hover:bg-zinc-100 dark:border-zinc-800 cursor-pointer"
             >
               <RotateCcw className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
 
-        <label className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 cursor-pointer">
-          <span className="flex items-center gap-1.5 font-medium">
+        <label className="flex items-center justify-between text-xs text-zinc-700 dark:text-zinc-300 cursor-pointer">
+          <span className="flex items-center gap-1.5">
+            <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+            Strip EXIF &amp; Metadata
+          </span>
+          <input
+            type="checkbox"
+            checked={
+              activeTab === "image" ? img.stripMetadata : vid.stripMetadata
+            }
+            disabled={disabled}
+            onChange={(e) => {
+              if (activeTab === "image")
+                updateImage({ stripMetadata: e.target.checked });
+              else updateVideo({ stripMetadata: e.target.checked });
+            }}
+            className="h-3.5 w-3.5 accent-indigo-600"
+          />
+        </label>
+
+        <label className="flex items-center justify-between text-xs text-zinc-700 dark:text-zinc-300 cursor-pointer">
+          <span>Bundle outputs into .zip</span>
+          <input
+            type="checkbox"
+            checked={settings.output.bundleZip}
+            disabled={disabled}
+            onChange={(e) => updateOutput({ bundleZip: e.target.checked })}
+            className="h-3.5 w-3.5 accent-indigo-600"
+          />
+        </label>
+
+        <label className="flex items-center justify-between text-xs text-zinc-700 dark:text-zinc-300 cursor-pointer">
+          <span className="flex items-center gap-1.5">
             <Trash2 className="h-3.5 w-3.5 text-amber-500" />
-            Move originals to Trash after success
+            Move originals to Trash
           </span>
           <input
             type="checkbox"
             checked={settings.output.trashOriginals}
             disabled={disabled}
             onChange={(e) => updateOutput({ trashOriginals: e.target.checked })}
-            className="h-4 w-4 accent-indigo-600"
+            className="h-3.5 w-3.5 accent-indigo-600"
           />
         </label>
 
-        <label className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 cursor-pointer">
-          <span className="font-medium">Bundle outputs into single .zip</span>
+        <input
+          type="text"
+          placeholder="Rename template: {name}_{width}x{height}"
+          disabled={disabled}
+          value={settings.output.renameTemplate}
+          onChange={(e) => updateOutput({ renameTemplate: e.target.value })}
+          className="w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs dark:border-zinc-800 dark:bg-zinc-900"
+        />
+
+        <input
+          type="text"
+          placeholder="Filename suffix (e.g. _min)"
+          disabled={disabled}
+          value={settings.output.suffix}
+          onChange={(e) => updateOutput({ suffix: e.target.value })}
+          className="w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs dark:border-zinc-800 dark:bg-zinc-900"
+        />
+
+        {settings.output.outputDir && (
+          <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={settings.output.preserveFolderStructure}
+              disabled={disabled}
+              onChange={(e) =>
+                updateOutput({ preserveFolderStructure: e.target.checked })
+              }
+              className="h-3.5 w-3.5 accent-indigo-600"
+            />
+            Preserve subfolder structure
+          </label>
+        )}
+
+        <div>
+          <div className="mb-1 flex justify-between text-[11px] text-zinc-500">
+            <span>CPU Threads</span>
+            <span>
+              {settings.maxCpuThreads
+                ? `${settings.maxCpuThreads} cores`
+                : `All (${hardware?.cpuCores ?? "Auto"})`}
+            </span>
+          </div>
+          <input
+            type="range"
+            min={1}
+            max={hardware?.cpuCores ?? 16}
+            disabled={disabled}
+            value={settings.maxCpuThreads ?? hardware?.cpuCores ?? 8}
+            onChange={(e) => {
+              const val = Number(e.target.value);
+              onChange({
+                ...settings,
+                maxCpuThreads:
+                  hardware && val >= hardware.cpuCores ? null : val,
+              });
+            }}
+            className="w-full accent-indigo-600"
+          />
+        </div>
+
+        <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer">
           <input
             type="checkbox"
-            checked={settings.output.bundleZip}
-            disabled={disabled}
-            onChange={(e) => updateOutput({ bundleZip: e.target.checked })}
-            className="h-4 w-4 accent-indigo-600"
+            checked={minimizeToTray}
+            onChange={(e) => onToggleMinimizeToTray(e.target.checked)}
+            className="h-3.5 w-3.5 accent-indigo-600"
           />
+          Keep running in Menu Bar / Tray
         </label>
-      </div>
-
-      {/* Advanced Performance Tuning */}
-      <div className="border-t border-zinc-200 pt-3 dark:border-zinc-800">
-        <button
-          type="button"
-          onClick={() => setShowAdvanced((v) => !v)}
-          className="flex w-full items-center justify-between text-xs font-medium text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 cursor-pointer"
-        >
-          <span className="flex items-center gap-1.5">
-            <Cpu className="h-3.5 w-3.5" />
-            Performance & Naming
-          </span>
-          {showAdvanced ? (
-            <ChevronDown className="h-3.5 w-3.5" />
-          ) : (
-            <ChevronRight className="h-3.5 w-3.5" />
-          )}
-        </button>
-
-        {showAdvanced && (
-          <div className="mt-3 space-y-3">
-            <div>
-              <label className="mb-1 block text-[11px] text-zinc-500">
-                Rename Template (optional)
-              </label>
-              <input
-                type="text"
-                placeholder="{name}_{width}x{height} or {index:03}_{name}"
-                disabled={disabled}
-                value={settings.output.renameTemplate}
-                onChange={(e) =>
-                  updateOutput({ renameTemplate: e.target.value })
-                }
-                className="w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-[11px] text-zinc-500">
-                Filename Suffix (optional)
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. _min"
-                disabled={disabled}
-                value={settings.output.suffix}
-                onChange={(e) => updateOutput({ suffix: e.target.value })}
-                className="w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-              />
-            </div>
-            {settings.output.outputDir && (
-              <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.output.preserveFolderStructure}
-                  disabled={disabled}
-                  onChange={(e) =>
-                    updateOutput({ preserveFolderStructure: e.target.checked })
-                  }
-                  className="h-3.5 w-3.5 accent-indigo-600"
-                />
-                Preserve dropped subfolder structure
-              </label>
-            )}
-            <div>
-              <div className="mb-1 flex justify-between text-[11px] text-zinc-500">
-                <span>CPU Threads</span>
-                <span>
-                  {settings.maxCpuThreads
-                    ? `${settings.maxCpuThreads} cores`
-                    : `All (${hardware?.cpuCores ?? "Auto"} cores)`}
-                </span>
-              </div>
-              <input
-                type="range"
-                min={1}
-                max={hardware?.cpuCores ?? 16}
-                disabled={disabled}
-                value={settings.maxCpuThreads ?? hardware?.cpuCores ?? 8}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  onChange({
-                    ...settings,
-                    maxCpuThreads:
-                      hardware && val >= hardware.cpuCores ? null : val,
-                  });
-                }}
-                className="w-full accent-indigo-600"
-              />
-            </div>
-            <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={minimizeToTray}
-                onChange={(e) => onToggleMinimizeToTray(e.target.checked)}
-                className="h-3.5 w-3.5 accent-indigo-600"
-              />
-              Keep running in Menu Bar / Tray on close
-            </label>
-          </div>
-        )}
-      </div>
+      </SectionAccordion>
     </div>
   );
 }

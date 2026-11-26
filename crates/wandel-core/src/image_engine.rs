@@ -160,7 +160,7 @@ fn decode_svg(
 
     // Convert premultiplied RGBA to straight RGBA for DynamicImage
     let mut rgba = pixmap.take();
-    for px in rgba.chunks_exact_mut(4) {
+    for px in rgba.as_chunks_mut::<4>().0 {
         let a = px[3];
         if a > 0 && a < 255 {
             let af = a as f32 / 255.0;
@@ -200,14 +200,14 @@ fn decode_jxl(path: &Path, ffmpeg_path: Option<&Path>) -> Result<DynamicImage> {
                 }
             }
             2 => {
-                for chunk in buf.chunks_exact(2) {
+                for chunk in buf.as_chunks::<2>().0 {
                     let v = to_u8(chunk[0]);
                     let a = to_u8(chunk[1]);
                     rgba.extend_from_slice(&[v, v, v, a]);
                 }
             }
             3 => {
-                for chunk in buf.chunks_exact(3) {
+                for chunk in buf.as_chunks::<3>().0 {
                     rgba.extend_from_slice(&[
                         to_u8(chunk[0]),
                         to_u8(chunk[1]),
@@ -888,7 +888,7 @@ fn apply_vignette(img: DynamicImage, strength: f32) -> DynamicImage {
         .for_each(|(y, row)| {
             let dy = y as f32 - cy;
             let dy_sq = dy * dy;
-            for (x, px) in row.chunks_exact_mut(4).enumerate() {
+            for (x, px) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 let dx = x as f32 - cx;
                 let norm_sq = (dx * dx + dy_sq) / max_dist_sq;
                 let factor = (1.0 - strength * norm_sq).clamp(0.0, 1.0);

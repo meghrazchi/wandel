@@ -27,6 +27,7 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev \
             patchelf \
+            nasm \
             ffmpeg
 
       - uses: actions/setup-node@v4
@@ -95,7 +96,12 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev \
             patchelf \
+            nasm \
             xz-utils
+
+      - name: Install macOS NASM for x64 AVIF assembly
+        if: runner.os == 'macOS' && matrix.target == 'x86_64-apple-darwin'
+        run: brew install nasm
 
       - uses: actions/setup-node@v4
         with:
@@ -209,6 +215,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Linux NASM for x64 AVIF assembly
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y nasm
+
+      - name: Install macOS NASM for x64 AVIF assembly
+        if: runner.os == 'macOS' && matrix.target == 'x86_64-apple-darwin'
+        run: brew install nasm
 
       - uses: dtolnay/rust-toolchain@stable
         with:

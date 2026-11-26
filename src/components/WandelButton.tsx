@@ -1,4 +1,5 @@
-import { Loader2, Square, Wand2 } from "lucide-react";
+import { Loader2, Square } from "lucide-react";
+import { WandelIcon } from "./WandelIcon";
 
 interface WandelButtonProps {
   totalFiles: number;
@@ -51,7 +52,10 @@ export function WandelButton({
         onClick={onWandel}
         className="group relative flex w-full items-center justify-center gap-2.5 overflow-hidden rounded-xl bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 bg-[length:200%_100%] py-3.5 text-base font-bold tracking-wide text-white shadow-lg shadow-indigo-600/25 transition-all duration-300 hover:bg-right hover:shadow-indigo-600/40 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none cursor-pointer"
       >
-        <Wand2 className="h-4.5 w-4.5 transition-transform duration-300 group-hover:rotate-12" />
+        <WandelIcon
+          variant="mark"
+          className="h-5 w-5 transition-transform duration-300 group-hover:scale-110"
+        />
         <span>Wandel</span>
         {totalFiles > 0 && (
           <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold">

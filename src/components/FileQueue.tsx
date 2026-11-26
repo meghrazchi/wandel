@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   ArrowDown,
@@ -7,6 +7,7 @@ import {
   ArrowUpDown,
   AudioLines,
   CheckCircle2,
+  ChevronDown,
   Code2,
   Columns2,
   CopyCheck,
@@ -28,6 +29,7 @@ import {
   Loader2,
   Minimize2,
   MonitorSmartphone,
+  MoreHorizontal,
   Music,
   Package,
   Palette,
@@ -39,6 +41,7 @@ import {
   Stamp,
   Trash2,
   Video,
+  Wrench,
   X,
 } from "lucide-react";
 import {
@@ -154,15 +157,43 @@ export function FileQueue({
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"order" | "name" | "size_desc" | "size_asc">("order");
   const [pdfFit, setPdfFit] = useState<PdfPageFit>("fit_to_image");
+  const [batchMenuOpen, setBatchMenuOpen] = useState(false);
+  const [openRowMenuId, setOpenRowMenuId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const closeAll = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setBatchMenuOpen(false);
+        setOpenRowMenuId(null);
+      }
+    };
+    const onDocClick = () => {
+      setBatchMenuOpen(false);
+      setOpenRowMenuId(null);
+    };
+    window.addEventListener("keydown", closeAll);
+    window.addEventListener("click", onDocClick);
+    return () => {
+      window.removeEventListener("keydown", closeAll);
+      window.removeEventListener("click", onDocClick);
+    };
+  }, []);
 
   const completedCount = items.filter((i) => i.status === "completed").length;
   const failedCount = items.filter((i) => i.status === "failed").length;
-  const imageCount = items.filter(
-    (i) => i.mediaKind === "image" || i.mediaKind === "pdf"
-  ).length;
-  const videoCount = items.filter(
-    (i) => i.mediaKind === "video" || i.mediaKind === "audio"
-  ).length;
+  const rawImageCount = items.filter((i) => i.mediaKind === "image").length;
+  const rawPdfCount = items.filter((i) => i.mediaKind === "pdf").length;
+  const rawVideoCount = items.filter((i) => i.mediaKind === "video").length;
+  const rawAudioCount = items.filter((i) => i.mediaKind === "audio").length;
+  const imageCount = rawImageCount + rawPdfCount;
+  const videoCount = rawVideoCount + rawAudioCount;
+
+  const hasBatchTools =
+    rawImageCount >= 2 ||
+    rawPdfCount >= 2 ||
+    rawVideoCount >= 2 ||
+    rawAudioCount >= 2 ||
+    completedCount > 0;
 
   const q = searchQuery.trim().toLowerCase();
   const visibleItems = useMemo(
@@ -185,15 +216,12 @@ export function FileQueue({
         }),
     [items, filter, q, sortBy]
   );
+
   const totalInputBytes = items.reduce((acc, i) => acc + i.sizeBytes, 0);
-  const totalOutputBytes = items.reduce(
-    (acc, i) => acc + (i.outputBytes ?? 0),
-    0
-  );
+  const totalOutputBytes = items.reduce((acc, i) => acc + (i.outputBytes ?? 0), 0);
   const completedInputBytes = items
     .filter((i) => i.status === "completed")
     .reduce((acc, i) => acc + i.sizeBytes, 0);
-
   const savedPercent =
     completedCount > 0 && completedInputBytes > 0
       ? Math.round((1 - totalOutputBytes / completedInputBytes) * 100)
@@ -201,7 +229,7 @@ export function FileQueue({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Queue Toolbar */}
+      {/* Clean Single-Row Queue Toolbar */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2.5">
           <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
@@ -244,6 +272,81 @@ export function FileQueue({
             <FolderPlus className="h-3.5 w-3.5" />
             Folder
           </button>
+
+          {/* Consolidated Batch Tools Menu */}
+          {hasBatchTools && !isConverting && (
+            <div className="relative" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                aria-expanded={batchMenuOpen}
+                onClick={() => {
+                  setOpenRowMenuId(null);
+                  setBatchMenuOpen((v) => !v);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1.5 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-500/20 dark:text-indigo-400 cursor-pointer"
+              >
+                <Wrench className="h-3.5 w-3.5" />
+                Batch Tools
+                <ChevronDown className="h-3 w-3" />
+              </button>
+
+              {batchMenuOpen && (
+                <div className="absolute right-0 z-30 mt-1.5 w-60 overflow-hidden rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+                  {rawImageCount >= 2 && (
+                    <>
+                      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                        Images ({rawImageCount})
+                      </div>
+                      <div className="flex items-center justify-between rounded-lg px-2 py-1.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-900">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBatchMenuOpen(false);
+                            onMergePdf(pdfFit);
+                          }}
+                          className="flex flex-1 items-center gap-2 text-left font-medium text-zinc-700 dark:text-zinc-200 cursor-pointer"
+                        >
+                          <FileText className="h-3.5 w-3.5 text-indigo-500" />
+                          Merge Images → PDF
+                        </button>
+                        <select
+                          value={pdfFit}
+                          onChange={(e) => setPdfFit(e.target.value as PdfPageFit)}
+                          className="rounded border border-zinc-200 bg-zinc-50 px-1 py-0.5 text-[10px] font-semibold dark:border-zinc-700 dark:bg-zinc-800"
+                        >
+                          <option value="fit_to_image">Fit</option>
+                          <option value="a4">A4</option>
+                          <option value="letter">Letter</option>
+                        </select>
+                      </div>
+                      <MenuRow icon={<Grid2x2 className="h-3.5 w-3.5 text-violet-500" />} label="Contact Sheet Grid" onClick={() => { setBatchMenuOpen(false); onCreateGrid(); }} />
+                      <MenuRow icon={<Columns2 className="h-3.5 w-3.5 text-cyan-500" />} label="Before / After Compare" onClick={() => { setBatchMenuOpen(false); onCompareImages(); }} />
+                      <MenuRow icon={<Video className="h-3.5 w-3.5 text-pink-500" />} label="Slideshow MP4 Video" onClick={() => { setBatchMenuOpen(false); onCreateSlideshow(); }} />
+                      <MenuRow icon={<Layers className="h-3.5 w-3.5 text-teal-500" />} label="Sprite Sheet + CSS Map" onClick={() => { setBatchMenuOpen(false); onCreateSpriteSheet(); }} />
+                      <MenuRow icon={<CopyCheck className="h-3.5 w-3.5 text-amber-500" />} label="Find & Remove Duplicates" onClick={() => { setBatchMenuOpen(false); onFindDuplicates(); }} />
+                    </>
+                  )}
+                  {rawPdfCount >= 2 && (
+                    <MenuRow icon={<FileText className="h-3.5 w-3.5 text-rose-500" />} label={`Merge ${rawPdfCount} PDFs (Lossless)`} onClick={() => { setBatchMenuOpen(false); onMergePdfs(); }} />
+                  )}
+                  {rawVideoCount >= 2 && (
+                    <MenuRow icon={<Film className="h-3.5 w-3.5 text-indigo-500" />} label={`Merge ${rawVideoCount} Videos`} onClick={() => { setBatchMenuOpen(false); onMergeVideos(); }} />
+                  )}
+                  {rawAudioCount >= 2 && (
+                    <MenuRow icon={<Music className="h-3.5 w-3.5 text-violet-500" />} label={`Merge ${rawAudioCount} Audio Tracks`} onClick={() => { setBatchMenuOpen(false); onMergeAudio(); }} />
+                  )}
+                  {completedCount > 0 && (
+                    <>
+                      <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
+                      <MenuRow icon={<RotateCw className="h-3.5 w-3.5 text-emerald-500" />} label="Re-queue Completed Outputs" onClick={() => { setBatchMenuOpen(false); onRequeueOutputs(); }} />
+                      <MenuRow icon={<Download className="h-3.5 w-3.5 text-zinc-500" />} label="Export Batch CSV Report" onClick={() => { setBatchMenuOpen(false); onExportCsv(); }} />
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {failedCount > 0 && !isConverting && (
             <button
               type="button"
@@ -251,151 +354,25 @@ export function FileQueue({
               className="inline-flex items-center gap-1 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-500/20 dark:text-red-400 cursor-pointer"
             >
               <RefreshCw className="h-3.5 w-3.5" />
-              Retry Failed ({failedCount})
+              Retry ({failedCount})
             </button>
           )}
-          {items.filter((i) => i.mediaKind === "image").length >= 2 &&
-            !isConverting && (
-              <>
-                <button
-                  type="button"
-                  onClick={onFindDuplicates}
-                  className="inline-flex items-center gap-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs font-semibold text-amber-600 transition hover:bg-amber-500/20 dark:text-amber-400 cursor-pointer"
-                  title="Detect & remove exact or visually similar duplicate images"
-                >
-                  <CopyCheck className="h-3.5 w-3.5" />
-                  Dedupe
-                </button>
-                <button
-                  type="button"
-                  onClick={onCreateGrid}
-                  className="inline-flex items-center gap-1 rounded-lg border border-violet-500/30 bg-violet-500/10 px-2.5 py-1.5 text-xs font-semibold text-violet-600 transition hover:bg-violet-500/20 dark:text-violet-400 cursor-pointer"
-                  title="Stitch queued images into a Contact Sheet / Grid collage"
-                >
-                  <Grid2x2 className="h-3.5 w-3.5" />
-                  Grid
-                </button>
-                <button
-                  type="button"
-                  onClick={onCompareImages}
-                  className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1.5 text-xs font-semibold text-cyan-600 transition hover:bg-cyan-500/20 dark:text-cyan-400 cursor-pointer"
-                  title="Create a side-by-side Before/After comparison from the first two queued images"
-                >
-                  <Columns2 className="h-3.5 w-3.5" />
-                  Compare
-                </button>
-                <button
-                  type="button"
-                  onClick={onCreateSlideshow}
-                  className="inline-flex items-center gap-1 rounded-lg border border-pink-500/30 bg-pink-500/10 px-2.5 py-1.5 text-xs font-semibold text-pink-600 transition hover:bg-pink-500/20 dark:text-pink-400 cursor-pointer"
-                  title="Turn queued images into an MP4 slideshow video"
-                >
-                  <Video className="h-3.5 w-3.5" />
-                  Slideshow
-                </button>
-                <button
-                  type="button"
-                  onClick={onCreateSpriteSheet}
-                  className="inline-flex items-center gap-1 rounded-lg border border-teal-500/30 bg-teal-500/10 px-2.5 py-1.5 text-xs font-semibold text-teal-600 transition hover:bg-teal-500/20 dark:text-teal-400 cursor-pointer"
-                  title="Pack queued images into a transparent Sprite Sheet + CSS map"
-                >
-                  <Layers className="h-3.5 w-3.5" />
-                  Sprites
-                </button>
-                <div className="inline-flex items-center overflow-hidden rounded-lg border border-indigo-500/30 bg-indigo-500/10">
-                  <button
-                    type="button"
-                    onClick={() => onMergePdf(pdfFit)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-500/20 dark:text-indigo-400 cursor-pointer"
-                    title="Merge all queued images into one multi-page PDF"
-                  >
-                    <FileText className="h-3.5 w-3.5" />
-                    Merge PDF
-                  </button>
-                  <select
-                    value={pdfFit}
-                    onChange={(e) => setPdfFit(e.target.value as PdfPageFit)}
-                    className="border-l border-indigo-500/20 bg-transparent px-1.5 py-1.5 text-[10px] font-semibold text-indigo-600 outline-none dark:text-indigo-400 cursor-pointer"
-                    title="PDF page size"
-                  >
-                    <option value="fit_to_image">Fit</option>
-                    <option value="a4">A4</option>
-                    <option value="letter">Letter</option>
-                  </select>
-                </div>
-              </>
-            )}
-          {items.filter((i) => i.mediaKind === "pdf").length >= 2 &&
-            !isConverting && (
-              <button
-                type="button"
-                onClick={onMergePdfs}
-                className="inline-flex items-center gap-1 rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-500/20 dark:text-rose-400 cursor-pointer"
-                title="Merge queued PDFs losslessly into one PDF"
-              >
-                <FileText className="h-3.5 w-3.5" />
-                Merge PDFs
-              </button>
-            )}
-          {items.filter((i) => i.mediaKind === "video").length >= 2 &&
-            !isConverting && (
-              <button
-                type="button"
-                onClick={onMergeVideos}
-                className="inline-flex items-center gap-1 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1.5 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-500/20 dark:text-indigo-400 cursor-pointer"
-                title="Concatenate queued videos into a single MP4"
-              >
-                <Film className="h-3.5 w-3.5" />
-                Merge Videos
-              </button>
-            )}
-          {items.filter((i) => i.mediaKind === "audio").length >= 2 &&
-            !isConverting && (
-              <button
-                type="button"
-                onClick={onMergeAudio}
-                className="inline-flex items-center gap-1 rounded-lg border border-violet-500/30 bg-violet-500/10 px-2.5 py-1.5 text-xs font-semibold text-violet-600 transition hover:bg-violet-500/20 dark:text-violet-400 cursor-pointer"
-                title="Concatenate queued audio files into a single track"
-              >
-                <Music className="h-3.5 w-3.5" />
-                Merge Audio
-              </button>
-            )}
           {completedCount > 0 && !isConverting && (
-            <>
-              <button
-                type="button"
-                onClick={onExportCsv}
-                className="inline-flex items-center gap-1 rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800 cursor-pointer"
-                title="Download a CSV report of this batch conversion"
-              >
-                <Download className="h-3.5 w-3.5" />
-                CSV
-              </button>
-              <button
-                type="button"
-                onClick={onRequeueOutputs}
-                className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-600 transition hover:bg-emerald-500/20 dark:text-emerald-400 cursor-pointer"
-                title="Load completed output files back into the queue to chain another step"
-              >
-                <RotateCw className="h-3.5 w-3.5" />
-                Re-queue Outputs
-              </button>
-              <button
-                type="button"
-                onClick={onClearCompleted}
-                className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-500 transition hover:bg-zinc-200/70 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 cursor-pointer"
-              >
-                Clear Done
-              </button>
-            </>
+            <button
+              type="button"
+              onClick={onClearCompleted}
+              className="rounded-lg px-2 py-1.5 text-xs font-medium text-zinc-500 transition hover:bg-zinc-200/70 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 cursor-pointer"
+            >
+              Clear Done
+            </button>
           )}
           <button
             type="button"
             onClick={onClearAll}
             disabled={isConverting}
-            className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-zinc-500 transition hover:bg-red-500/10 hover:text-red-500 disabled:opacity-40 cursor-pointer"
+            className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-red-500/10 hover:text-red-500 disabled:opacity-40 cursor-pointer"
             title="Clear all files"
+            aria-label="Clear all files"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -408,15 +385,9 @@ export function FileQueue({
           {(
             [
               { id: "all", label: `All (${items.length})` },
-              ...(imageCount > 0
-                ? [{ id: "image" as const, label: `Images (${imageCount})` }]
-                : []),
-              ...(videoCount > 0
-                ? [{ id: "video" as const, label: `Video/Audio (${videoCount})` }]
-                : []),
-              ...(failedCount > 0
-                ? [{ id: "failed" as const, label: `Failed (${failedCount})` }]
-                : []),
+              ...(imageCount > 0 ? [{ id: "image" as const, label: `Images (${imageCount})` }] : []),
+              ...(videoCount > 0 ? [{ id: "video" as const, label: `Video/Audio (${videoCount})` }] : []),
+              ...(failedCount > 0 ? [{ id: "failed" as const, label: `Failed (${failedCount})` }] : []),
             ] as { id: "all" | "image" | "video" | "failed"; label: string }[]
           ).map((f) => (
             <button
@@ -451,12 +422,9 @@ export function FileQueue({
           <select
             value={sortBy}
             onChange={(e) =>
-              setSortBy(
-                e.target.value as "order" | "name" | "size_desc" | "size_asc"
-              )
+              setSortBy(e.target.value as "order" | "name" | "size_desc" | "size_asc")
             }
             className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-700 outline-none focus:border-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 cursor-pointer"
-            title="Sort queue"
           >
             <option value="order">Queue Order</option>
             <option value="name">Name (A–Z)</option>
@@ -477,11 +445,12 @@ export function FileQueue({
             item.sizeBytes > 0
               ? Math.round((1 - item.outputBytes / item.sizeBytes) * 100)
               : null;
+          const menuOpen = openRowMenuId === item.id;
 
           return (
             <div
               key={item.id}
-              className={`group relative overflow-hidden rounded-xl border p-3 transition-colors ${
+              className={`group relative rounded-xl border p-3 transition-colors ${
                 item.status === "failed"
                   ? "border-red-500/30 bg-red-500/5"
                   : item.status === "completed"
@@ -511,14 +480,12 @@ export function FileQueue({
 
                 {/* Details */}
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p
-                      className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100"
-                      title={item.path}
-                    >
-                      {item.fileName}
-                    </p>
-                  </div>
+                  <p
+                    className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100"
+                    title={item.path}
+                  >
+                    {item.fileName}
+                  </p>
 
                   <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                     <span className="rounded bg-zinc-200/70 px-1.5 py-0.5 font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
@@ -537,7 +504,7 @@ export function FileQueue({
                               : undefined
                           )
                         }
-                        title="Click to override format for this file only"
+                        title="Override format for this file"
                         className={`rounded px-1.5 py-0.5 text-[11px] font-semibold outline-none cursor-pointer ${
                           item.overrideImageFormat
                             ? "bg-amber-500/20 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/40"
@@ -572,7 +539,7 @@ export function FileQueue({
                             );
                           }
                         }}
-                        title="Click to override format for this file only"
+                        title="Override format for this file"
                         className={`rounded px-1.5 py-0.5 text-[11px] font-semibold outline-none cursor-pointer ${
                           item.overrideVideoTarget
                             ? "bg-amber-500/20 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/40"
@@ -626,8 +593,8 @@ export function FileQueue({
                   )}
                 </div>
 
-                {/* Status / Actions */}
-                <div className="flex shrink-0 items-center gap-2">
+                {/* Clean Status & Primary Row Actions */}
+                <div className="flex shrink-0 items-center gap-1.5">
                   {item.status === "converting" && (
                     <div className="flex items-center gap-1.5 text-xs font-medium text-indigo-500">
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -636,7 +603,7 @@ export function FileQueue({
                   )}
 
                   {item.status === "completed" && (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       <div className="text-right">
                         <div className="flex items-center justify-end gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
                           <CheckCircle2 className="h-3.5 w-3.5" />
@@ -648,9 +615,7 @@ export function FileQueue({
                         </div>
                         {itemSaved !== null && (
                           <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                            {itemSaved >= 0
-                              ? `-${itemSaved}%`
-                              : `+${Math.abs(itemSaved)}%`}
+                            {itemSaved >= 0 ? `-${itemSaved}%` : `+${Math.abs(itemSaved)}%`}
                             {item.durationMs != null
                               ? ` · ${(item.durationMs / 1000).toFixed(2)}s`
                               : ""}
@@ -674,189 +639,6 @@ export function FileQueue({
                     <AlertCircle className="h-4 w-4 text-red-500" />
                   )}
 
-                  {!isConverting && (
-                    <button
-                      type="button"
-                      onClick={() => onInspectItem(item)}
-                      className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-zinc-200/80 hover:text-zinc-800 hover:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 cursor-pointer"
-                      title="Inspect EXIF / Media Metadata"
-                    >
-                      <Info className="h-4 w-4" />
-                    </button>
-                  )}
-
-                  {item.mediaKind === "image" && !isConverting && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => onDataUrlItem(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-sky-500/10 hover:text-sky-500 hover:opacity-100 cursor-pointer"
-                        title="Export as Base64 Data URL / HTML / CSS"
-                      >
-                        <Code2 className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onPaletteItem(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-pink-500/10 hover:text-pink-500 hover:opacity-100 cursor-pointer"
-                        title="Extract dominant color palette"
-                      >
-                        <Palette className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onResponsiveSetItem(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-teal-500/10 hover:text-teal-500 hover:opacity-100 cursor-pointer"
-                        title="Generate Responsive Web srcset bundle (320w..1920w)"
-                      >
-                        <MonitorSmartphone className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onSliceImage(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-amber-500/10 hover:text-amber-500 hover:opacity-100 cursor-pointer"
-                        title="Slice image into an equal cols×rows grid (e.g. 3×1 carousel)"
-                      >
-                        <Grid3x3 className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onGenerateIconPack(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-violet-500/10 hover:text-violet-500 hover:opacity-100 cursor-pointer"
-                        title="Generate Web & App Favicon / Icon Pack"
-                      >
-                        <Package className="h-4 w-4" />
-                      </button>
-                    </>
-                  )}
-
-                  {item.mediaKind === "video" && !isConverting && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => onStoryboardItem(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-indigo-500/10 hover:text-indigo-500 hover:opacity-100 cursor-pointer"
-                        title="Generate 3×3 Video Storyboard Contact Sheet"
-                      >
-                        <LayoutGrid className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onExtractFrames(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-cyan-500/10 hover:text-cyan-500 hover:opacity-100 cursor-pointer"
-                        title="Extract Video Frame Sequence (FPS -> PNG/WebP/JPG)"
-                      >
-                        <Images className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onSplitMedia(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-amber-500/10 hover:text-amber-500 hover:opacity-100 cursor-pointer"
-                        title="Split video losslessly into equal-duration chunks"
-                      >
-                        <Scissors className="h-4 w-4" />
-                      </button>
-                    </>
-                  )}
-
-                  {item.mediaKind === "audio" && !isConverting && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => onAudioWaveform(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-violet-500/10 hover:text-violet-500 hover:opacity-100 cursor-pointer"
-                        title="Generate Audio Waveform PNG Poster"
-                      >
-                        <AudioLines className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onPodcastVideo(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-pink-500/10 hover:text-pink-500 hover:opacity-100 cursor-pointer"
-                        title="Combine audio + cover image into an MP4 video"
-                      >
-                        <Video className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onSplitMedia(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-amber-500/10 hover:text-amber-500 hover:opacity-100 cursor-pointer"
-                        title="Split audio losslessly into equal-duration chunks"
-                      >
-                        <Scissors className="h-4 w-4" />
-                      </button>
-                    </>
-                  )}
-
-                  {item.mediaKind === "pdf" && !isConverting && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => onRotatePdf(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-amber-500/10 hover:text-amber-500 hover:opacity-100 cursor-pointer"
-                        title="Rotate PDF pages 90° clockwise (lossless)"
-                      >
-                        <RotateCw className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onReorderPdf(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-indigo-500/10 hover:text-indigo-500 hover:opacity-100 cursor-pointer"
-                        title="Reorder or extract PDF pages (lossless)"
-                      >
-                        <ArrowUpDown className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onStampPdf(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-red-500/10 hover:text-red-500 hover:opacity-100 cursor-pointer"
-                        title="Stamp diagonal watermark text onto PDF pages (lossless)"
-                      >
-                        <Stamp className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onNumberPdf(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-sky-500/10 hover:text-sky-500 hover:opacity-100 cursor-pointer"
-                        title="Add centered page numbers to every PDF page (lossless)"
-                      >
-                        <Hash className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onExtractPdfImages(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-teal-500/10 hover:text-teal-500 hover:opacity-100 cursor-pointer"
-                        title="Extract original embedded images from PDF (lossless)"
-                      >
-                        <Images className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onScrubPdf(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-emerald-500/10 hover:text-emerald-500 hover:opacity-100 cursor-pointer"
-                        title="Scrub identifying PDF metadata (/Info & XMP) losslessly"
-                      >
-                        <ShieldCheck className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onCompressPdf(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-emerald-500/10 hover:text-emerald-500 hover:opacity-100 cursor-pointer"
-                        title="Compress / optimize PDF file size"
-                      >
-                        <Minimize2 className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onSplitPdf(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-rose-500/10 hover:text-rose-500 hover:opacity-100 cursor-pointer"
-                        title="Split / extract page range into a new PDF"
-                      >
-                        <Scissors className="h-4 w-4" />
-                      </button>
-                    </>
-                  )}
-
                   {(item.mediaKind === "image" ||
                     item.mediaKind === "video" ||
                     item.mediaKind === "audio") &&
@@ -864,45 +646,105 @@ export function FileQueue({
                       <button
                         type="button"
                         onClick={() => onPreviewItem(item)}
-                        className="rounded-lg p-1.5 text-zinc-400 opacity-70 transition hover:bg-indigo-500/10 hover:text-indigo-500 hover:opacity-100 cursor-pointer"
-                        title={
-                          item.mediaKind === "image"
-                            ? "Before / After preview & visual crop"
-                            : item.mediaKind === "video"
-                            ? "Video preview, visual trim & frame snapshot"
-                            : "Audio preview & visual trim"
-                        }
+                        className="rounded-lg p-1.5 text-zinc-400 transition hover:bg-indigo-500/10 hover:text-indigo-500 cursor-pointer"
+                        title="Preview, crop or trim"
+                        aria-label="Preview item"
                       >
                         <Eye className="h-4 w-4" />
                       </button>
                     )}
+
+                  {/* Per-item contextual Tools popover */}
+                  {!isConverting && (
+                    <div className="relative" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        aria-expanded={menuOpen}
+                        aria-label="More item tools"
+                        onClick={() => {
+                          setBatchMenuOpen(false);
+                          setOpenRowMenuId(menuOpen ? null : item.id);
+                        }}
+                        className="rounded-lg p-1.5 text-zinc-400 transition hover:bg-zinc-200/80 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 cursor-pointer"
+                        title="More tools..."
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </button>
+
+                      {menuOpen && (
+                        <div className="absolute right-0 z-30 mt-1 w-56 overflow-hidden rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+                          <MenuRow icon={<Info className="h-3.5 w-3.5 text-zinc-500" />} label="Inspect Metadata / EXIF" onClick={() => { setOpenRowMenuId(null); onInspectItem(item); }} />
+                          <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
+
+                          {item.mediaKind === "image" && (
+                            <>
+                              <MenuRow icon={<MonitorSmartphone className="h-3.5 w-3.5 text-teal-500" />} label="Responsive srcset Bundle" onClick={() => { setOpenRowMenuId(null); onResponsiveSetItem(item); }} />
+                              <MenuRow icon={<Grid3x3 className="h-3.5 w-3.5 text-amber-500" />} label="Slice Grid (3×1 / 3×3)" onClick={() => { setOpenRowMenuId(null); onSliceImage(item); }} />
+                              <MenuRow icon={<Package className="h-3.5 w-3.5 text-violet-500" />} label="Favicon & App Icon Pack" onClick={() => { setOpenRowMenuId(null); onGenerateIconPack(item); }} />
+                              <MenuRow icon={<Palette className="h-3.5 w-3.5 text-pink-500" />} label="Extract Color Palette" onClick={() => { setOpenRowMenuId(null); onPaletteItem(item); }} />
+                              <MenuRow icon={<Code2 className="h-3.5 w-3.5 text-sky-500" />} label="Base64 Data URL" onClick={() => { setOpenRowMenuId(null); onDataUrlItem(item); }} />
+                            </>
+                          )}
+
+                          {item.mediaKind === "pdf" && (
+                            <>
+                              <MenuRow icon={<RotateCw className="h-3.5 w-3.5 text-amber-500" />} label="Rotate Pages 90° CW" onClick={() => { setOpenRowMenuId(null); onRotatePdf(item); }} />
+                              <MenuRow icon={<ArrowUpDown className="h-3.5 w-3.5 text-indigo-500" />} label="Reorder / Extract Pages" onClick={() => { setOpenRowMenuId(null); onReorderPdf(item); }} />
+                              <MenuRow icon={<Stamp className="h-3.5 w-3.5 text-red-500" />} label="Stamp Watermark Text" onClick={() => { setOpenRowMenuId(null); onStampPdf(item); }} />
+                              <MenuRow icon={<Hash className="h-3.5 w-3.5 text-sky-500" />} label="Add Page Numbers" onClick={() => { setOpenRowMenuId(null); onNumberPdf(item); }} />
+                              <MenuRow icon={<Images className="h-3.5 w-3.5 text-teal-500" />} label="Extract Embedded Images" onClick={() => { setOpenRowMenuId(null); onExtractPdfImages(item); }} />
+                              <MenuRow icon={<ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />} label="Scrub Metadata (Privacy)" onClick={() => { setOpenRowMenuId(null); onScrubPdf(item); }} />
+                              <MenuRow icon={<Minimize2 className="h-3.5 w-3.5 text-emerald-500" />} label="Compress PDF Size" onClick={() => { setOpenRowMenuId(null); onCompressPdf(item); }} />
+                              <MenuRow icon={<Scissors className="h-3.5 w-3.5 text-rose-500" />} label="Split Page Range" onClick={() => { setOpenRowMenuId(null); onSplitPdf(item); }} />
+                            </>
+                          )}
+
+                          {item.mediaKind === "video" && (
+                            <>
+                              <MenuRow icon={<LayoutGrid className="h-3.5 w-3.5 text-indigo-500" />} label="3×3 Video Storyboard" onClick={() => { setOpenRowMenuId(null); onStoryboardItem(item); }} />
+                              <MenuRow icon={<Images className="h-3.5 w-3.5 text-cyan-500" />} label="Extract Frame Sequence" onClick={() => { setOpenRowMenuId(null); onExtractFrames(item); }} />
+                              <MenuRow icon={<Scissors className="h-3.5 w-3.5 text-amber-500" />} label="Split into Chunks (Lossless)" onClick={() => { setOpenRowMenuId(null); onSplitMedia(item); }} />
+                            </>
+                          )}
+
+                          {item.mediaKind === "audio" && (
+                            <>
+                              <MenuRow icon={<AudioLines className="h-3.5 w-3.5 text-violet-500" />} label="Waveform PNG Poster" onClick={() => { setOpenRowMenuId(null); onAudioWaveform(item); }} />
+                              <MenuRow icon={<Video className="h-3.5 w-3.5 text-pink-500" />} label="Cover + Audio → MP4" onClick={() => { setOpenRowMenuId(null); onPodcastVideo(item); }} />
+                              <MenuRow icon={<Scissors className="h-3.5 w-3.5 text-amber-500" />} label="Split into Chunks (Lossless)" onClick={() => { setOpenRowMenuId(null); onSplitMedia(item); }} />
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {!isConverting &&
                     filter === "all" &&
                     !q &&
                     sortBy === "order" &&
                     items.length > 1 && (
-                    <div className="flex flex-col opacity-0 transition group-hover:opacity-100">
-                      <button
-                        type="button"
-                        disabled={globalIndex <= 0}
-                        onClick={() => onMoveItem(globalIndex, -1)}
-                        className="rounded p-0.5 text-zinc-400 hover:text-zinc-800 disabled:opacity-20 dark:hover:text-zinc-200 cursor-pointer"
-                        title="Move up"
-                      >
-                        <ArrowUp className="h-3 w-3" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={globalIndex >= items.length - 1}
-                        onClick={() => onMoveItem(globalIndex, 1)}
-                        className="rounded p-0.5 text-zinc-400 hover:text-zinc-800 disabled:opacity-20 dark:hover:text-zinc-200 cursor-pointer"
-                        title="Move down"
-                      >
-                        <ArrowDown className="h-3 w-3" />
-                      </button>
-                    </div>
-                  )}
+                      <div className="flex flex-col opacity-0 transition group-hover:opacity-100">
+                        <button
+                          type="button"
+                          disabled={globalIndex <= 0}
+                          onClick={() => onMoveItem(globalIndex, -1)}
+                          className="rounded p-0.5 text-zinc-400 hover:text-zinc-800 disabled:opacity-20 dark:hover:text-zinc-200 cursor-pointer"
+                          title="Move up"
+                        >
+                          <ArrowUp className="h-3 w-3" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={globalIndex >= items.length - 1}
+                          onClick={() => onMoveItem(globalIndex, 1)}
+                          className="rounded p-0.5 text-zinc-400 hover:text-zinc-800 disabled:opacity-20 dark:hover:text-zinc-200 cursor-pointer"
+                          title="Move down"
+                        >
+                          <ArrowDown className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )}
 
                   {!isConverting && (
                     <button
@@ -910,6 +752,7 @@ export function FileQueue({
                       onClick={() => onRemoveItem(item.id)}
                       className="rounded-lg p-1.5 text-zinc-400 opacity-60 transition hover:bg-zinc-200/80 hover:text-zinc-800 hover:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 cursor-pointer"
                       title="Remove from queue"
+                      aria-label="Remove from queue"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
@@ -917,7 +760,6 @@ export function FileQueue({
                 </div>
               </div>
 
-              {/* Progress Bar */}
               {item.status === "converting" && (
                 <div className="mt-2.5 h-1 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
                   <div
@@ -931,5 +773,26 @@ export function FileQueue({
         })}
       </div>
     </div>
+  );
+}
+
+function MenuRow({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-900 cursor-pointer"
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
   );
 }

@@ -59,6 +59,7 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev \
             patchelf \
+            nasm \
             ffmpeg
 
       - name: Install macOS FFmpeg
@@ -118,6 +119,7 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev \
             patchelf \
+            nasm \
             ffmpeg
 
       - uses: actions/setup-node@v4
