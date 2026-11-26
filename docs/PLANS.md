@@ -23,9 +23,14 @@ This document tracks Wandel's completed milestones from `v1.0.0` through `v2.2.0
 | **v2.2 (`v22`)** | Cached `OnceLock` system `fontdb`, `rayon` parallel RGBA pixel passes + zero-copy `into_rgba8()`, memoized queue rendering, SEO/marketing `README.md` with macOS setup guide, and structured `docs/` (`ARCHITECTURE.md`, `MCP.md`, `PLANS.md`). |
 | **v2.3 (`v23`)** | Progressive disclosure UX (`SectionAccordion` collapsible drawers, live Active Modifiers chip strip, decluttered `Batch Tools ▾` & per-row `⋯` menus, floating dismissible toast), Wandel brand SVG icon, and cross-OS CI/Release hardening (`nasm`, `fonts-dejavu-core`, 8 MB Windows CLI stack). |
 | **v2.4 (`v24`)** | Interactive Visual PDF Page Organizer (`PdfOrganizerModal` with parallel `hayro` thumbnails, drag-to-reorder, per-page rotate/duplicate/remove, single-pass lossless `lopdf` export) and Local HTTP MCP Transport (`wandel mcp --http` with optional `--token` bearer auth). |
+| **v2.5 (`v25`)** | EBU R128 loudness normalization & auto-trim silence across CLI, MCP, and UI Active Modifiers; Desktop Composable Pipeline Runner (`PipelineModal` with starter templates + dry-run preview); and distribution packaging (`packaging/install.sh`, Homebrew Cask, Scoop manifest). |
+| **v2.6 (`v26`)** | Interactive Privacy Blur Redaction regions in `PreviewModal` (click-and-drag redaction boxes + `--blur-region` CLI + `blurRegions` MCP) and pure-Rust offline PDF text extraction (`wandel pdf-text`, `wandel_pdf_ops` `extract_text`, and Desktop `.txt` export). |
+| **v2.7 (`v27`)** | Parallel 5-platform Social Media Kit generator (`generate_social_kit` across Core/UI/CLI/MCP), Video Poster Frame Extractor (`wandel poster` / MCP `poster`), and sidebar Active Modifiers chip for privacy blur redactions. |
+| **v2.8 (`v28`)** | Pure-Rust Smart Solid/Auto Background Removal with soft edge feathering (`--remove-bg` / MCP `removeBgColor` / UI controls), Parallel Dark-Mode PDF Converter (`wandel pdf-dark` / MCP `dark_mode` / UI), and Desktop Video Poster Frame menu action. |
+| **v2.9 (`v29`)** | Pure-Rust Images → Animated GIF Maker (`wandel make-gif` / MCP `make_gif` / UI), Parallel Animated GIF Frame Extractor (`wandel gif-frames` / MCP `gif_frames` / UI), `#[cfg(desktop)]` mobile-ready Tauri guards, and responsive Queue/Settings mobile tab layout. |
+| **v3.0 (`v30`)** | Single-Decode Multi-Format Fan-Out Export (`--also avif,jpg` / MCP `alsoFormats` / UI **Also Export As** pills), History CSV export in `HistoryDrawer`, and v3.0.0 milestone docs & package manager polish. |
 
 ---
 
 ## Future Ideas (Backlog)
 - Signed & notarized macOS Universal builds + Windows code signing.
-- Optional Homebrew Cask (`brew install --cask wandel`) and Winget / Scoop manifests.

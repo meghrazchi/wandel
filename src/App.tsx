@@ -28,6 +28,7 @@ import { McpModal } from "./components/McpModal";
 import { MetadataModal } from "./components/MetadataModal";
 import { PaletteModal } from "./components/PaletteModal";
 import { PdfOrganizerModal } from "./components/PdfOrganizerModal";
+import { PipelineModal } from "./components/PipelineModal";
 import { PreviewModal } from "./components/PreviewModal";
 import { QrModal } from "./components/QrModal";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -115,6 +116,7 @@ export default function App() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
   const [showMcpModal, setShowMcpModal] = useState(false);
+  const [showPipelineModal, setShowPipelineModal] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [inspectItem, setInspectItem] = useState<QueueItem | null>(null);
   const [paletteItem, setPaletteItem] = useState<QueueItem | null>(null);
@@ -132,6 +134,7 @@ export default function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [isInspecting, setIsInspecting] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
+  const [mobileTab, setMobileTab] = useState<"queue" | "settings">("queue");
   const [batchSummary, setBatchSummary] = useState<string | null>(null);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem("wandel-theme");
@@ -391,6 +394,146 @@ export default function App() {
           },
         },
       }));
+    }
+  }, []);
+
+  const handleGenerateSocialKit = useCallback(async (item: QueueItem) => {
+    const dir = await open({
+      multiple: false,
+      directory: true,
+      title: "Select folder for Social Media Kit (5 platform sizes)",
+    });
+    if (typeof dir !== "string") return;
+
+    setBatchSummary("Generating 5-platform Social Media Kit...");
+    try {
+      const files = await invoke<string[]>("generate_social_kit", {
+        path: item.path,
+        outputDir: dir,
+        format: settings.image.format,
+      });
+      setBatchSummary(`Generated ${files.length} social media assets!`);
+      if (files[0]) await revealItemInDir(files[0]);
+    } catch (err) {
+      setBatchSummary(`Social kit failed: ${String(err)}`);
+    }
+  }, [settings.image.format]);
+
+  const handleCreateAnimatedGif = useCallback(async () => {
+    const imagePaths = items
+      .filter((i) => i.mediaKind === "image")
+      .map((i) => i.path);
+    if (imagePaths.length < 2) return;
+
+    const dest = await save({
+      title: "Save Animated GIF",
+      defaultPath: "wandel_animation.gif",
+      filters: [{ name: "GIF Animation", extensions: ["gif"] }],
+    });
+    if (!dest) return;
+
+    setBatchSummary(`Creating animated GIF from ${imagePaths.length} images...`);
+    try {
+      const bytes = await invoke<number>("create_animated_gif", {
+        paths: imagePaths,
+        outputPath: dest,
+        delayMs: 300,
+        maxWidth: 800,
+      });
+      setBatchSummary(`Created animated GIF (${(bytes / 1024).toFixed(0)} KB)`);
+      await revealItemInDir(dest);
+    } catch (err) {
+      setBatchSummary(`Animated GIF failed: ${String(err)}`);
+    }
+  }, [items]);
+
+  const handleExtractGifFrames = useCallback(async (item: QueueItem) => {
+    const dir = await open({
+      multiple: false,
+      directory: true,
+      title: "Select folder for extracted GIF frames",
+    });
+    if (typeof dir !== "string") return;
+
+    setBatchSummary("Extracting GIF frames in parallel...");
+    try {
+      const files = await invoke<string[]>("extract_gif_frames", {
+        path: item.path,
+        outputDir: dir,
+        format: "png",
+      });
+      setBatchSummary(`Extracted ${files.length} GIF frame(s)!`);
+      if (files[0]) await revealItemInDir(files[0]);
+    } catch (err) {
+      setBatchSummary(`GIF frame extraction failed: ${String(err)}`);
+    }
+  }, []);
+
+  const handleDarkModePdf = useCallback(async (item: QueueItem) => {
+    const dest = await save({
+      title: "Save Dark-Mode PDF",
+      defaultPath: item.fileName.replace(/\.pdf$/i, "_dark.pdf"),
+      filters: [{ name: "PDF Document", extensions: ["pdf"] }],
+    });
+    if (!dest) return;
+
+    setBatchSummary("Converting PDF to Dark Mode...");
+    try {
+      const bytes = await invoke<number>("convert_pdf_dark_mode", {
+        path: item.path,
+        outputPath: dest,
+        dpi: 150,
+      });
+      setBatchSummary(`Saved Dark-Mode PDF (${(bytes / 1024).toFixed(0)} KB)`);
+      await revealItemInDir(dest);
+    } catch (err) {
+      setBatchSummary(`Dark-mode PDF failed: ${String(err)}`);
+    }
+  }, []);
+
+  const handleExtractPoster = useCallback(async (item: QueueItem) => {
+    const dest = await save({
+      title: "Save Video Poster Frame",
+      defaultPath: item.fileName.replace(/\.[^.]+$/, "_poster.jpg"),
+      filters: [{ name: "JPEG Image", extensions: ["jpg", "jpeg"] }],
+    });
+    if (!dest) return;
+
+    const ts = item.durationSecs && item.durationSecs > 2 ? Math.min(2.0, item.durationSecs * 0.2) : 0.2;
+    setBatchSummary("Extracting crisp video poster frame...");
+    try {
+      const bytes = await invoke<number>("extract_video_poster", {
+        path: item.path,
+        outputPath: dest,
+        timestampSecs: ts,
+      });
+      setBatchSummary(`Saved video poster (${(bytes / 1024).toFixed(0)} KB)`);
+      await revealItemInDir(dest);
+    } catch (err) {
+      setBatchSummary(`Poster extraction failed: ${String(err)}`);
+    }
+  }, []);
+
+  const handleExtractPdfText = useCallback(async (item: QueueItem) => {
+    const dest = await save({
+      title: "Save Extracted PDF Text",
+      defaultPath: item.fileName.replace(/\.pdf$/i, ".txt"),
+      filters: [{ name: "Text File", extensions: ["txt"] }],
+    });
+    if (!dest) return;
+
+    setBatchSummary("Extracting text from PDF...");
+    try {
+      const [pages, bytes] = await invoke<[number, number]>("export_pdf_text_file", {
+        path: item.path,
+        outputPath: dest,
+      });
+      setBatchSummary(
+        `Extracted text from ${pages} page(s) (${(bytes / 1024).toFixed(1)} KB)`
+      );
+      await revealItemInDir(dest);
+    } catch (err) {
+      setBatchSummary(`PDF text extraction failed: ${String(err)}`);
     }
   }, []);
 
@@ -1710,6 +1853,11 @@ export default function App() {
         run: () => setShowMcpModal(true),
       },
       {
+        id: "pipeline",
+        label: "Open Composable Pipeline Runner",
+        run: () => setShowPipelineModal(true),
+      },
+      {
         id: "shortcuts",
         label: "Show Keyboard Shortcuts & About",
         shortcut: "?",
@@ -1872,10 +2020,42 @@ export default function App() {
         </div>
       </header>
 
+      {/* Mobile / Narrow Viewport Tab Switcher */}
+      <div className="flex border-b border-zinc-200 bg-white/90 px-4 py-1.5 md:hidden dark:border-zinc-800 dark:bg-zinc-950/90">
+        <div className="grid w-full grid-cols-2 gap-1 rounded-lg bg-zinc-100 p-0.5 text-xs font-semibold dark:bg-zinc-900">
+          <button
+            type="button"
+            onClick={() => setMobileTab("queue")}
+            className={`rounded-md py-1.5 transition cursor-pointer ${
+              mobileTab === "queue"
+                ? "bg-white text-indigo-600 shadow-xs dark:bg-zinc-800 dark:text-indigo-400"
+                : "text-zinc-500"
+            }`}
+          >
+            Queue ({items.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobileTab("settings")}
+            className={`rounded-md py-1.5 transition cursor-pointer ${
+              mobileTab === "settings"
+                ? "bg-white text-indigo-600 shadow-xs dark:bg-zinc-800 dark:text-indigo-400"
+                : "text-zinc-500"
+            }`}
+          >
+            Settings &amp; Wandel
+          </button>
+        </div>
+      </div>
+
       {/* Main Content Split */}
       <main className="flex min-h-0 flex-1">
         {/* Left: Drop Zone / File Queue */}
-        <section className="flex min-w-0 flex-1 flex-col p-5">
+        <section
+          className={`${
+            mobileTab === "queue" ? "flex" : "hidden"
+          } min-w-0 flex-1 flex-col p-4 md:flex md:p-5`}
+        >
           {items.length === 0 ? (
             <DropZone
               isDragging={isDragging}
@@ -1904,6 +2084,8 @@ export default function App() {
               onPreviewItem={setPreviewItem}
               onInspectItem={setInspectItem}
               onGenerateIconPack={handleGenerateIconPack}
+              onGenerateSocialKit={handleGenerateSocialKit}
+              onExtractGifFrames={handleExtractGifFrames}
               onOverrideImageFormat={(id: string, format: ImageFormat | undefined) =>
                 setItems((prev) =>
                   prev.map((i) =>
@@ -1924,6 +2106,7 @@ export default function App() {
               onCreateGrid={handleCreateGrid}
               onCompareImages={handleCompareImages}
               onCreateSlideshow={handleCreateSlideshow}
+              onCreateAnimatedGif={handleCreateAnimatedGif}
               onCreateSpriteSheet={handleCreateSpriteSheet}
               onMergeVideos={handleMergeVideos}
               onMergePdfs={handleMergePdfs}
@@ -1935,6 +2118,8 @@ export default function App() {
               onStampPdf={handleStampPdf}
               onNumberPdf={handleNumberPdf}
               onExtractPdfImages={handleExtractPdfImages}
+              onExtractPdfText={handleExtractPdfText}
+              onDarkModePdf={handleDarkModePdf}
               onScrubPdf={handleScrubPdf}
               onPaletteItem={setPaletteItem}
               onDataUrlItem={setDataUrlItem}
@@ -1942,6 +2127,7 @@ export default function App() {
               onSliceImage={handleSliceImage}
               onStoryboardItem={handleCreateStoryboard}
               onExtractFrames={handleExtractFrames}
+              onExtractPoster={handleExtractPoster}
               onAudioWaveform={handleAudioWaveform}
               onPodcastVideo={handlePodcastVideo}
               onSplitMedia={handleSplitMedia}
@@ -1949,12 +2135,17 @@ export default function App() {
               onRequeueOutputs={handleRequeueOutputs}
               onMergeAudio={handleMergeAudio}
               onFindDuplicates={handleFindDuplicates}
+              onOpenPipeline={() => setShowPipelineModal(true)}
             />
           )}
         </section>
 
         {/* Right: Settings & Wandel CTA */}
-        <aside className="flex w-[340px] shrink-0 flex-col border-l border-zinc-200 bg-white/70 p-4 dark:border-zinc-800/80 dark:bg-zinc-900/40">
+        <aside
+          className={`${
+            mobileTab === "settings" ? "flex w-full" : "hidden"
+          } shrink-0 flex-col border-l border-zinc-200 bg-white/70 p-4 md:flex md:w-[340px] dark:border-zinc-800/80 dark:bg-zinc-900/40`}
+        >
           <SettingsPanel
             settings={settings}
             activePreset={activePreset}
@@ -2002,6 +2193,12 @@ export default function App() {
             setSettings((prev) => ({
               ...prev,
               image: { ...prev.image, customCrop },
+            }))
+          }
+          onApplyBlurRegions={(blurRegions) =>
+            setSettings((prev) => ({
+              ...prev,
+              image: { ...prev.image, blurRegions },
             }))
           }
           onClose={() => setPreviewItem(null)}
@@ -2084,6 +2281,14 @@ export default function App() {
       )}
 
       {showMcpModal && <McpModal onClose={() => setShowMcpModal(false)} />}
+
+      {showPipelineModal && (
+        <PipelineModal
+          items={items}
+          onClose={() => setShowPipelineModal(false)}
+          onCompleted={(summary) => setBatchSummary(summary)}
+        />
+      )}
 
       {/* Floating Dismissible Toast Notification */}
       {batchSummary && (

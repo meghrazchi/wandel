@@ -172,12 +172,35 @@ pub fn tool_definitions() -> Value {
                     "playbackMode": { "type": "string", "enum": ["normal", "reverse", "boomerang"] },
                     "remux": { "type": "boolean", "default": false, "description": "Lossless container stream-copy (-c copy) with zero re-encoding." },
                     "denoiseAudio": { "type": "boolean", "default": false },
+                    "normalizeAudio": { "type": "boolean", "default": false, "description": "Normalize audio loudness to EBU R128 (-16 LUFS)." },
+                    "trimSilence": { "type": "boolean", "default": false, "description": "Trim leading and trailing silence on audio exports." },
                     "deinterlace": { "type": "boolean", "default": false },
                     "videoSharpen": { "type": "boolean", "default": false },
                     "bundleZip": { "type": "boolean", "default": false },
                     "trashOriginals": { "type": "boolean", "default": false },
                     "textWatermark": { "type": "string", "description": "Optional text watermark overlay for images." },
                     "tiledWatermark": { "type": "boolean", "default": false, "description": "Tile textWatermark diagonally across the entire image." },
+                    "removeBgColor": { "type": "string", "description": "Remove solid background color ('auto' samples 4 corners, or '#RRGGBB')." },
+                    "removeBgTolerance": { "type": "integer", "minimum": 0, "maximum": 120, "default": 24 },
+                    "alsoFormats": {
+                        "type": "array",
+                        "description": "Additional image formats to export simultaneously from a single decode (e.g. ['avif', 'jpg']).",
+                        "items": { "type": "string" }
+                    },
+                    "blurRegions": {
+                        "type": "array",
+                        "description": "Optional normalized privacy redaction blur boxes [{x, y, width, height}] (0.0..=1.0).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "x": { "type": "number", "minimum": 0, "maximum": 1 },
+                                "y": { "type": "number", "minimum": 0, "maximum": 1 },
+                                "width": { "type": "number", "minimum": 0, "maximum": 1 },
+                                "height": { "type": "number", "minimum": 0, "maximum": 1 }
+                            },
+                            "required": ["x", "y", "width", "height"]
+                        }
+                    },
                     "dryRun": { "type": "boolean", "default": false, "description": "Preview planned outputs without writing or modifying any files." }
                 },
                 "required": ["inputs"],
@@ -209,7 +232,9 @@ pub fn tool_definitions() -> Value {
                             "stamp",
                             "number",
                             "extract_images",
-                            "scrub_metadata"
+                            "scrub_metadata",
+                            "extract_text",
+                            "dark_mode"
                         ]
                     },
                     "input": { "type": "string", "description": "Single input PDF path (for split, compress, rotate, reorder, stamp, number, extract_images, scrub_metadata)." },
@@ -251,7 +276,10 @@ pub fn tool_definitions() -> Value {
                             "palette",
                             "dedupe",
                             "qr",
-                            "data_url"
+                            "data_url",
+                            "social_kit",
+                            "make_gif",
+                            "gif_frames"
                         ]
                     },
                     "input": { "type": "string" },
@@ -300,7 +328,8 @@ pub fn tool_definitions() -> Value {
                             "waveform",
                             "slideshow",
                             "audiogram",
-                            "split_segments"
+                            "split_segments",
+                            "poster"
                         ]
                     },
                     "input": { "type": "string" },

@@ -1866,3 +1866,368 @@ fn v24_pdf_thumbnails_and_organize_pages() {
     let (page_count, _, _, _) = inspect_pdf(&out_pdf);
     assert_eq!(page_count, Some(3));
 }
+
+#[test]
+fn v25_audio_loudnorm_and_silence_trim() {
+    let bin_ext = if cfg!(windows) { ".exe" } else { "" };
+    let (Some(ffmpeg), Some(ffprobe)) = (
+        find_bin(&format!("ffmpeg{}", bin_ext)),
+        find_bin(&format!("ffprobe{}", bin_ext)),
+    ) else {
+        return;
+    };
+    let dir = tempdir().unwrap();
+    let wav = dir.path().join("voice.wav");
+
+    // Generate 1.5s synthetic sine tone WAV via FFmpeg
+    let gen = Command::new(&ffmpeg)
+        .args([
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=1.5",
+            wav.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap();
+    assert!(gen.success());
+
+    let hw = probe_hardware(Some(&ffmpeg), Some(&ffprobe));
+    let out_dir = dir.path().join("mastered");
+    let settings = ConversionSettings {
+        video: VideoSettings {
+            target: VideoTarget::Audio(AudioFormat::Mp3),
+            normalize_loudness: true,
+            trim_silence: true,
+            ..Default::default()
+        },
+        output: wandel_core::OutputSettings {
+            output_dir: Some(out_dir),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let meta = inspect_paths(&[wav], Some(&ffmpeg), Some(&ffprobe))
+        .into_iter()
+        .next()
+        .unwrap();
+    let jobs = vec![JobItem {
+        id: meta.id,
+        path: PathBuf::from(&meta.path),
+        media_kind: meta.media_kind,
+        duration_secs: meta.duration_secs,
+        width: meta.width,
+        height: meta.height,
+        relative_dir: meta.relative_dir,
+        image_override: None,
+        video_override: None,
+    }];
+
+    let completed = Arc::new(Mutex::new(None::<String>));
+    let completed_ref = Arc::clone(&completed);
+    run_batch(
+        jobs,
+        &settings,
+        &hw,
+        Some(ffmpeg.as_path()),
+        Arc::new(AtomicBool::new(false)),
+        move |ev| match ev {
+            ProgressEvent::FileCompleted { output_path, .. } => {
+                *completed_ref.lock().unwrap() = Some(output_path);
+            }
+            ProgressEvent::FileFailed { error, .. } => {
+                panic!("v25 audio mastering failed: {}", error);
+            }
+            _ => {}
+        },
+    );
+
+    let out_path = completed.lock().unwrap().clone().expect("Expected MP3 output");
+    assert!(Path::new(&out_path).exists());
+    assert!(std::fs::metadata(&out_path).unwrap().len() > 1000);
+}
+
+#[test]
+fn v26_blur_regions_and_pdf_text_extract() {
+    use wandel_core::image_engine::convert_image;
+    use wandel_core::{
+        export_pdf_text_file, merge_images_to_pdf, stamp_pdf_text, NormalizedCrop, PdfPageFit,
+    };
+
+    let dir = tempdir().unwrap();
+
+    // 1. Privacy blur redaction modifies only the target region and leaves corners untouched
+    let src = dir.path().join("checker.png");
+    let img = ImageBuffer::from_fn(120, 120, |x, y| {
+        if ((x / 4) + (y / 4)) % 2 == 0 {
+            Rgba([255, 255, 255, 255])
+        } else {
+            Rgba([0, 0, 0, 255])
+        }
+    });
+    DynamicImage::ImageRgba8(img).save(&src).unwrap();
+
+    let out_redacted = dir.path().join("redacted.png");
+    let bytes = convert_image(
+        &src,
+        &out_redacted,
+        &ImageSettings {
+            format: ImageFormat::Png,
+            blur_regions: vec![NormalizedCrop {
+                x: 0.25,
+                y: 0.25,
+                width: 0.5,
+                height: 0.5,
+            }],
+            ..Default::default()
+        },
+        None,
+    )
+    .unwrap();
+    assert!(bytes > 0);
+    let redacted = image::open(&out_redacted).unwrap().to_rgba8();
+    // Top-left corner outside redaction box stays sharp white
+    assert_eq!(redacted.get_pixel(0, 0)[0], 255);
+    // Center pixel inside redaction box is blurred (neither pure 0 nor pure 255)
+    let center_luma = redacted.get_pixel(60, 60)[0];
+    assert!(
+        center_luma > 10 && center_luma < 245,
+        "Expected blurred mid-tone in redacted center, got {}",
+        center_luma
+    );
+
+    // 2. Pure-Rust offline PDF text extraction
+    let base_pdf = dir.path().join("base.pdf");
+    merge_images_to_pdf(
+        &[src],
+        &base_pdf,
+        &ImageSettings::default(),
+        PdfPageFit::A4,
+        None,
+    )
+    .unwrap();
+    let stamped_pdf = dir.path().join("stamped.pdf");
+    stamp_pdf_text(&base_pdf, &stamped_pdf, "WANDEL_SECRET_TEXT").unwrap();
+
+    let txt_out = dir.path().join("extracted.txt");
+    let (pages, txt_bytes) = export_pdf_text_file(&stamped_pdf, &txt_out).unwrap();
+    assert_eq!(pages, 1);
+    assert!(txt_bytes > 0);
+    let extracted = std::fs::read_to_string(&txt_out).unwrap();
+    assert!(extracted.contains("--- Page 1 ---"));
+    assert!(extracted.contains("WANDEL_SECRET_TEXT"));
+}
+
+#[test]
+fn v27_social_kit_and_video_poster() {
+    use wandel_core::{extract_video_poster, generate_social_kit};
+
+    let dir = tempdir().unwrap();
+
+    // 1. Parallel 5-platform Social Media Kit with exact output dimensions
+    let hero = dir.path().join("hero.png");
+    DynamicImage::ImageRgba8(ImageBuffer::from_fn(400, 300, |x, y| {
+        Rgba([(x % 255) as u8, (y % 255) as u8, 160, 255])
+    }))
+    .save(&hero)
+    .unwrap();
+
+    let kit_dir = dir.path().join("social_kit");
+    let files = generate_social_kit(&hero, &kit_dir, ImageFormat::Webp, None).unwrap();
+    assert_eq!(files.len(), 5);
+    assert_eq!(
+        image::image_dimensions(kit_dir.join("og_card_1200x630.webp")).unwrap(),
+        (1200, 630)
+    );
+    assert_eq!(
+        image::image_dimensions(kit_dir.join("youtube_thumb_1280x720.webp")).unwrap(),
+        (1280, 720)
+    );
+    assert_eq!(
+        image::image_dimensions(kit_dir.join("instagram_square_1080x1080.webp")).unwrap(),
+        (1080, 1080)
+    );
+    assert_eq!(
+        image::image_dimensions(kit_dir.join("instagram_story_1080x1920.webp")).unwrap(),
+        (1080, 1920)
+    );
+    assert_eq!(
+        image::image_dimensions(kit_dir.join("x_header_1500x500.webp")).unwrap(),
+        (1500, 500)
+    );
+
+    // 2. Video Poster Frame Extractor (when FFmpeg is available)
+    let bin_ext = if cfg!(windows) { ".exe" } else { "" };
+    if let Some(ffmpeg) = find_bin(&format!("ffmpeg{}", bin_ext)) {
+        let clip = dir.path().join("clip.mp4");
+        let gen = Command::new(&ffmpeg)
+            .args([
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=1.5:size=320x240:rate=15",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                clip.to_str().unwrap(),
+            ])
+            .status()
+            .unwrap();
+        assert!(gen.success());
+
+        let poster = dir.path().join("poster.jpg");
+        let bytes = extract_video_poster(&clip, &poster, 0.5, &ffmpeg).unwrap();
+        assert!(bytes > 1000);
+        assert_eq!(image::image_dimensions(&poster).unwrap(), (320, 240));
+    }
+}
+
+#[test]
+fn v28_remove_bg_and_dark_mode_pdf() {
+    use wandel_core::image_engine::convert_image;
+    use wandel_core::{convert_pdf_dark_mode, inspect_pdf, merge_images_to_pdf, PdfPageFit};
+
+    let dir = tempdir().unwrap();
+
+    // 1. Smart Auto-Corner Background Removal (white backdrop + dark blue center logo)
+    let logo = dir.path().join("logo.png");
+    let img = ImageBuffer::from_fn(80, 80, |x, y| {
+        if (20..60).contains(&x) && (20..60).contains(&y) {
+            Rgba([30, 60, 200, 255])
+        } else {
+            Rgba([255, 255, 255, 255])
+        }
+    });
+    DynamicImage::ImageRgba8(img).save(&logo).unwrap();
+
+    let transparent_out = dir.path().join("logo_nobg.png");
+    let bytes = convert_image(
+        &logo,
+        &transparent_out,
+        &ImageSettings {
+            format: ImageFormat::Png,
+            remove_bg_color: Some("auto".into()),
+            remove_bg_tolerance: 24,
+            ..Default::default()
+        },
+        None,
+    )
+    .unwrap();
+    assert!(bytes > 0);
+    let out_rgba = image::open(&transparent_out).unwrap().to_rgba8();
+    // Corner background is now fully transparent
+    assert_eq!(out_rgba.get_pixel(0, 0)[3], 0);
+    // Center foreground logo stays fully opaque
+    assert_eq!(out_rgba.get_pixel(40, 40)[3], 255);
+
+    // 2. Parallel Dark-Mode PDF Converter
+    let light_pdf = dir.path().join("light.pdf");
+    merge_images_to_pdf(
+        &[logo],
+        &light_pdf,
+        &ImageSettings::default(),
+        PdfPageFit::A4,
+        None,
+    )
+    .unwrap();
+
+    let dark_pdf = dir.path().join("dark.pdf");
+    let dark_bytes = convert_pdf_dark_mode(&light_pdf, &dark_pdf, 96).unwrap();
+    assert!(dark_bytes > 500);
+    let (pages, _, _, _) = inspect_pdf(&dark_pdf);
+    assert_eq!(pages, Some(1));
+}
+
+#[test]
+fn v29_animated_gif_make_and_extract_frames() {
+    use wandel_core::{create_animated_gif, extract_gif_frames};
+
+    let dir = tempdir().unwrap();
+    let f1 = dir.path().join("f1.png");
+    let f2 = dir.path().join("f2.png");
+    let f3 = dir.path().join("f3.png");
+    DynamicImage::ImageRgba8(ImageBuffer::from_pixel(96, 64, Rgba([220, 40, 40, 255])))
+        .save(&f1)
+        .unwrap();
+    DynamicImage::ImageRgba8(ImageBuffer::from_pixel(96, 64, Rgba([40, 200, 80, 255])))
+        .save(&f2)
+        .unwrap();
+    DynamicImage::ImageRgba8(ImageBuffer::from_pixel(96, 64, Rgba([40, 90, 220, 255])))
+        .save(&f3)
+        .unwrap();
+
+    // 1. Create pure-Rust 3-frame animated GIF
+    let gif_out = dir.path().join("anim.gif");
+    let bytes = create_animated_gif(&[f1, f2, f3], &gif_out, 250, Some(64), None).unwrap();
+    assert!(bytes > 100);
+
+    // 2. Extract all 3 frames in parallel as PNGs
+    let frames_dir = dir.path().join("frames");
+    let extracted = extract_gif_frames(&gif_out, &frames_dir, ImageFormat::Png).unwrap();
+    assert_eq!(extracted.len(), 3);
+    assert_eq!(image::image_dimensions(&extracted[0]).unwrap(), (64, 43));
+}
+
+#[test]
+fn v30_multi_format_fanout_export() {
+    let dir = tempdir().unwrap();
+    let src = dir.path().join("hero.png");
+    DynamicImage::ImageRgba8(ImageBuffer::from_fn(160, 120, |x, y| {
+        Rgba([(x % 255) as u8, (y % 255) as u8, 180, 255])
+    }))
+    .save(&src)
+    .unwrap();
+
+    let out_dir = dir.path().join("multi_out");
+    let settings = ConversionSettings {
+        image: ImageSettings {
+            format: ImageFormat::Webp,
+            quality: 82,
+            extra_formats: vec![ImageFormat::Jpg, ImageFormat::Avif],
+            ..Default::default()
+        },
+        output: wandel_core::OutputSettings {
+            output_dir: Some(out_dir.clone()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let meta = inspect_paths(&[src], None, None).into_iter().next().unwrap();
+    let jobs = vec![JobItem {
+        id: meta.id,
+        path: PathBuf::from(&meta.path),
+        media_kind: meta.media_kind,
+        duration_secs: None,
+        width: meta.width,
+        height: meta.height,
+        relative_dir: None,
+        image_override: None,
+        video_override: None,
+    }];
+
+    let hw = probe_hardware(None, None);
+    let completed = Arc::new(Mutex::new(0usize));
+    let completed_ref = Arc::clone(&completed);
+    run_batch(
+        jobs,
+        &settings,
+        &hw,
+        None,
+        Arc::new(AtomicBool::new(false)),
+        move |ev| {
+            if let ProgressEvent::FileCompleted { .. } = ev {
+                *completed_ref.lock().unwrap() += 1;
+            }
+        },
+    );
+
+    assert_eq!(*completed.lock().unwrap(), 1);
+    assert!(out_dir.join("hero.webp").exists());
+    assert!(out_dir.join("hero.jpg").exists());
+    assert!(out_dir.join("hero.avif").exists());
+}

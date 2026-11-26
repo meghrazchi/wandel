@@ -186,7 +186,8 @@ export function SettingsPanel({
     (img.saturation !== 0 ? 1 : 0) +
     (img.blurSigma > 0 ? 1 : 0) +
     (img.pixelateBlock > 0 ? 1 : 0) +
-    (img.vignetteStrength > 0 ? 1 : 0);
+    (img.vignetteStrength > 0 ? 1 : 0) +
+    (img.removeBgColor ? 1 : 0);
 
   const imgFrameCount =
     (img.cornerRadiusPercent > 0 ? 1 : 0) +
@@ -256,6 +257,15 @@ export function SettingsPanel({
           ...(img.watermark
             ? [{ label: "Logo Watermark", clear: () => updateImage({ watermark: null }) }]
             : []),
+          ...((img.blurRegions?.length ?? 0) > 0
+            ? [{ label: `${img.blurRegions!.length} Redact Blur`, clear: () => updateImage({ blurRegions: [] }) }]
+            : []),
+          ...(img.removeBgColor
+            ? [{ label: `Remove BG (${img.removeBgColor})`, clear: () => updateImage({ removeBgColor: null }) }]
+            : []),
+          ...((img.extraFormats?.length ?? 0) > 0
+            ? [{ label: `+${img.extraFormats!.length} Extra Format${img.extraFormats!.length === 1 ? "" : "s"}`, clear: () => updateImage({ extraFormats: [] }) }]
+            : []),
         ]
       : [
           ...(vid.remuxOnly
@@ -272,6 +282,12 @@ export function SettingsPanel({
             : []),
           ...(vid.denoiseAudio
             ? [{ label: "Voice Denoise", clear: () => updateVideo({ denoiseAudio: false }) }]
+            : []),
+          ...(vid.normalizeLoudness
+            ? [{ label: "EBU R128", clear: () => updateVideo({ normalizeLoudness: false }) }]
+            : []),
+          ...(vid.trimSilence
+            ? [{ label: "Trim Silence", clear: () => updateVideo({ trimSilence: false }) }]
             : []),
           ...(vid.audioGainDb !== 0
             ? [{ label: `${vid.audioGainDb > 0 ? "+" : ""}${vid.audioGainDb}dB`, clear: () => updateVideo({ audioGainDb: 0 }) }]
@@ -543,6 +559,39 @@ export function SettingsPanel({
                 </button>
               ))}
             </div>
+
+            {/* Also Export As (Single-Decode Multi-Format Fan-Out) */}
+            <div className="mt-2 flex flex-wrap items-center gap-1">
+              <span className="text-[10px] font-medium text-zinc-500">
+                Also export:
+              </span>
+              {(["webp", "avif", "jpg", "png"] as ImageFormat[])
+                .filter((f) => f !== img.format)
+                .map((extraFmt) => {
+                  const active = (img.extraFormats ?? []).includes(extraFmt);
+                  return (
+                    <button
+                      key={extraFmt}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => {
+                        const prev = img.extraFormats ?? [];
+                        const next = active
+                          ? prev.filter((f) => f !== extraFmt)
+                          : [...prev, extraFmt];
+                        updateImage({ extraFormats: next });
+                      }}
+                      className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase transition cursor-pointer disabled:opacity-50 ${
+                        active
+                          ? "bg-emerald-600 text-white"
+                          : "border border-zinc-200 bg-white text-zinc-500 hover:border-emerald-400 hover:text-emerald-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
+                      }`}
+                    >
+                      +{extraFmt}
+                    </button>
+                  );
+                })}
+            </div>
           </div>
 
           {/* Quality / Lossless / Target Size */}
@@ -801,6 +850,52 @@ export function SettingsPanel({
               >
                 Auto-Levels
               </button>
+            </div>
+
+            {/* Smart Solid / Auto Background Removal */}
+            <div className="space-y-2 rounded-lg border border-zinc-200/80 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/50">
+              <div className="flex items-center justify-between text-[11px] font-medium text-zinc-700 dark:text-zinc-300">
+                <span>Remove Solid Background</span>
+                <div className="flex items-center gap-1">
+                  {(
+                    [
+                      { id: null, label: "Off" },
+                      { id: "auto", label: "Auto" },
+                      { id: "#ffffff", label: "White" },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.label}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => updateImage({ removeBgColor: opt.id })}
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-pointer ${
+                        img.removeBgColor === opt.id
+                          ? "bg-indigo-600 text-white"
+                          : "bg-white text-zinc-600 hover:bg-zinc-200/70 dark:bg-zinc-800 dark:text-zinc-300"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {img.removeBgColor && (
+                <label className="flex items-center justify-between gap-2 text-[10px] text-zinc-500">
+                  <span>Tolerance ({img.removeBgTolerance ?? 24})</span>
+                  <input
+                    type="range"
+                    min={4}
+                    max={90}
+                    disabled={disabled}
+                    value={img.removeBgTolerance ?? 24}
+                    onChange={(e) =>
+                      updateImage({ removeBgTolerance: Number(e.target.value) })
+                    }
+                    className="w-28 accent-indigo-600"
+                  />
+                </label>
+              )}
             </div>
 
             <div>

@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowRight, Check, Crop, Loader2, MoveHorizontal, RotateCcw, X } from "lucide-react";
+import { ArrowRight, Check, Crop, EyeOff, Loader2, MoveHorizontal, RotateCcw, Undo2, X } from "lucide-react";
 import {
   ImagePreview,
   ImageSettings,
@@ -13,6 +13,7 @@ interface PreviewModalProps {
   item: QueueItem;
   settings: ImageSettings;
   onApplyCustomCrop: (crop: NormalizedCrop | null) => void;
+  onApplyBlurRegions: (regions: NormalizedCrop[]) => void;
   onClose: () => void;
 }
 
@@ -20,16 +21,23 @@ export function PreviewModal({
   item,
   settings,
   onApplyCustomCrop,
+  onApplyBlurRegions,
   onClose,
 }: PreviewModalProps) {
   const [preview, setPreview] = useState<ImagePreview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [splitPercent, setSplitPercent] = useState(50);
-  const [cropMode, setCropMode] = useState(false);
+  const [mode, setMode] = useState<"compare" | "crop" | "redact">("compare");
   const [crop, setCrop] = useState<NormalizedCrop>(
     settings.customCrop ?? { x: 0.1, y: 0.1, width: 0.8, height: 0.8 }
   );
+  const [blurRegions, setBlurRegions] = useState<NormalizedCrop[]>(
+    settings.blurRegions ?? []
+  );
+  const [draftBox, setDraftBox] = useState<NormalizedCrop | null>(null);
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const redactCanvasRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,15 +124,29 @@ export function PreviewModal({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setCropMode((v) => !v)}
+              onClick={() => setMode((m) => (m === "crop" ? "compare" : "crop"))}
               className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer ${
-                cropMode
+                mode === "crop"
                   ? "bg-indigo-600 text-white"
                   : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
               }`}
             >
               <Crop className="h-3.5 w-3.5" />
-              {cropMode ? "Back to Compare" : "Visual Crop"}
+              {mode === "crop" ? "Back to Compare" : "Visual Crop"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode((m) => (m === "redact" ? "compare" : "redact"))}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                mode === "redact"
+                  ? "bg-rose-600 text-white"
+                  : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+              }`}
+            >
+              <EyeOff className="h-3.5 w-3.5" />
+              {mode === "redact"
+                ? "Back to Compare"
+                : `Redact Blur${blurRegions.length > 0 ? ` (${blurRegions.length})` : ""}`}
             </button>
             <button
               type="button"
@@ -136,7 +158,7 @@ export function PreviewModal({
           </div>
         </div>
 
-        {/* Comparison / Visual Crop Canvas */}
+        {/* Comparison / Visual Crop / Redact Blur Canvas */}
         <div className="relative flex min-h-[380px] flex-1 items-center justify-center overflow-hidden bg-zinc-100 p-4 dark:bg-zinc-900">
           {loading ? (
             <div className="flex flex-col items-center gap-2 text-sm text-zinc-500">
@@ -145,7 +167,7 @@ export function PreviewModal({
             </div>
           ) : error ? (
             <p className="max-w-md text-center text-sm text-red-500">{error}</p>
-          ) : preview && cropMode ? (
+          ) : preview && mode === "crop" ? (
             <div className="relative inline-block max-h-[60vh] max-w-full select-none overflow-hidden rounded-xl border border-zinc-300 shadow-lg dark:border-zinc-700">
               <img
                 src={preview.originalDataUrl}
@@ -162,6 +184,60 @@ export function PreviewModal({
                   height: `${crop.height * 100}%`,
                 }}
               />
+            </div>
+          ) : preview && mode === "redact" ? (
+            <div
+              ref={redactCanvasRef}
+              onMouseDown={(e) => {
+                const rect = redactCanvasRef.current?.getBoundingClientRect();
+                if (!rect || rect.width === 0 || rect.height === 0) return;
+                const nx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                const ny = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+                dragStartRef.current = { x: nx, y: ny };
+                setDraftBox({ x: nx, y: ny, width: 0, height: 0 });
+              }}
+              onMouseMove={(e) => {
+                if (!dragStartRef.current) return;
+                const rect = redactCanvasRef.current?.getBoundingClientRect();
+                if (!rect || rect.width === 0 || rect.height === 0) return;
+                const nx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                const ny = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+                const sx = dragStartRef.current.x;
+                const sy = dragStartRef.current.y;
+                setDraftBox({
+                  x: Math.min(sx, nx),
+                  y: Math.min(sy, ny),
+                  width: Math.abs(nx - sx),
+                  height: Math.abs(ny - sy),
+                });
+              }}
+              onMouseUp={() => {
+                if (draftBox && draftBox.width > 0.015 && draftBox.height > 0.015) {
+                  setBlurRegions((prev) => [...prev, draftBox]);
+                }
+                dragStartRef.current = null;
+                setDraftBox(null);
+              }}
+              className="relative inline-block max-h-[60vh] max-w-full cursor-crosshair select-none overflow-hidden rounded-xl border border-zinc-300 shadow-lg dark:border-zinc-700"
+            >
+              <img
+                src={preview.originalDataUrl}
+                alt="Redact target"
+                className="block max-h-[60vh] max-w-full object-contain"
+                draggable={false}
+              />
+              {[...blurRegions, ...(draftBox ? [draftBox] : [])].map((box, i) => (
+                <div
+                  key={i}
+                  className="pointer-events-none absolute border-2 border-rose-500 bg-rose-500/20 backdrop-blur-md"
+                  style={{
+                    left: `${box.x * 100}%`,
+                    top: `${box.y * 100}%`,
+                    width: `${box.width * 100}%`,
+                    height: `${box.height * 100}%`,
+                  }}
+                />
+              ))}
             </div>
           ) : (
             preview && (
@@ -220,8 +296,8 @@ export function PreviewModal({
           )}
         </div>
 
-        {/* Footer / Visual Crop Controls */}
-        {cropMode ? (
+        {/* Footer / Visual Crop & Redact Controls */}
+        {mode === "crop" ? (
           <div className="space-y-2.5 border-t border-zinc-200 bg-zinc-50 px-5 py-3 dark:border-zinc-800 dark:bg-zinc-900/80">
             <div className="grid grid-cols-2 gap-3 text-[11px] text-zinc-500 sm:grid-cols-4">
               <label className="flex flex-col gap-1">
@@ -284,7 +360,7 @@ export function PreviewModal({
                 type="button"
                 onClick={() => {
                   onApplyCustomCrop(null);
-                  setCropMode(false);
+                  setMode("compare");
                 }}
                 className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-zinc-500 hover:bg-zinc-200/70 dark:hover:bg-zinc-800 cursor-pointer"
               >
@@ -295,12 +371,52 @@ export function PreviewModal({
                 type="button"
                 onClick={() => {
                   onApplyCustomCrop(crop);
-                  setCropMode(false);
+                  setMode("compare");
                 }}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 cursor-pointer"
               >
                 <Check className="h-3.5 w-3.5" />
                 Apply Visual Crop
+              </button>
+            </div>
+          </div>
+        ) : mode === "redact" ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 bg-zinc-50 px-5 py-3 text-xs dark:border-zinc-800 dark:bg-zinc-900/80">
+            <span className="text-zinc-500 dark:text-zinc-400">
+              Click and drag on the image to add privacy blur boxes ({blurRegions.length} active).
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={blurRegions.length === 0}
+                onClick={() => setBlurRegions((prev) => prev.slice(0, -1))}
+                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-200/70 disabled:opacity-35 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer"
+              >
+                <Undo2 className="h-3.5 w-3.5" />
+                Undo
+              </button>
+              <button
+                type="button"
+                disabled={blurRegions.length === 0}
+                onClick={() => {
+                  setBlurRegions([]);
+                  onApplyBlurRegions([]);
+                }}
+                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium text-zinc-500 hover:bg-zinc-200/70 disabled:opacity-35 dark:hover:bg-zinc-800 cursor-pointer"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Clear All
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onApplyBlurRegions(blurRegions);
+                  setMode("compare");
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-rose-500 cursor-pointer"
+              >
+                <Check className="h-3.5 w-3.5" />
+                Apply Blur Redaction
               </button>
             </div>
           </div>

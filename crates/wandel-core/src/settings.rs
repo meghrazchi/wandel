@@ -305,6 +305,22 @@ pub struct ImageSettings {
     pub watermark: Option<WatermarkSettings>,
     #[serde(default)]
     pub text_watermark: Option<TextWatermarkSettings>,
+    /// Optional privacy redaction blur rectangles (normalized 0.0..=1.0)
+    #[serde(default)]
+    pub blur_regions: Vec<NormalizedCrop>,
+    /// Optional solid background removal key color ("auto" samples 4 corners, or "#RRGGBB")
+    #[serde(default)]
+    pub remove_bg_color: Option<String>,
+    /// Per-channel RGB distance tolerance (0..=120) for solid background removal
+    #[serde(default = "default_remove_bg_tolerance")]
+    pub remove_bg_tolerance: u8,
+    /// Optional additional image formats to encode simultaneously from a single decode
+    #[serde(default)]
+    pub extra_formats: Vec<ImageFormat>,
+}
+
+fn default_remove_bg_tolerance() -> u8 {
+    24
 }
 
 fn default_true() -> bool {
@@ -354,6 +370,10 @@ impl Default for ImageSettings {
             background_hex: default_bg_hex(),
             watermark: None,
             text_watermark: None,
+            blur_regions: Vec::new(),
+            remove_bg_color: None,
+            remove_bg_tolerance: 24,
+            extra_formats: Vec::new(),
         }
     }
 }

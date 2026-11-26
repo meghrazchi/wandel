@@ -1347,6 +1347,167 @@ pub fn organize_pdf_pages(input: &Path, output: &Path, plan: &[PdfPagePlan]) -> 
     Ok(size)
 }
 
+/// Extracts plain text page-by-page from a PDF completely offline using `lopdf`.
+pub fn extract_pdf_text(input: &Path) -> Result<Vec<(u32, String)>> {
+    let doc = lopdf::Document::load(input)
+        .map_err(|e| WandelError::ImageDecode(format!("Failed to load PDF: {}", e)))?;
+    let pages = doc.get_pages();
+    if pages.is_empty() {
+        return Err(WandelError::ImageDecode("PDF has no pages".into()));
+    }
+    let mut out = Vec::with_capacity(pages.len());
+    for &page_num in pages.keys() {
+        let text = doc
+            .extract_text(&[page_num])
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        out.push((page_num, text));
+    }
+    Ok(out)
+}
+
+/// Extracts all page text from a PDF and saves it as a clean page-delimited UTF-8 `.txt` file.
+/// Returns `(page_count, output_bytes)`.
+pub fn export_pdf_text_file(input: &Path, output: &Path) -> Result<(usize, u64)> {
+    let pages = extract_pdf_text(input)?;
+    let page_count = pages.len();
+    let mut content = String::new();
+    for (idx, (page_num, text)) in pages.iter().enumerate() {
+        if idx > 0 {
+            content.push_str("\n\n");
+        }
+        content.push_str(&format!("--- Page {} ---\n{}", page_num, text));
+    }
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(output, content.as_bytes())?;
+    Ok((page_count, content.len() as u64))
+}
+
+/// Converts a light-background PDF into an eye-friendly dark-mode PDF in parallel via `hayro` + `rayon`
+/// (maps pure white `#ffffff` -> `#18181b` and black `#000000` -> `#e4e4e7`) and repacks via `pdf-writer`.
+pub fn convert_pdf_dark_mode(input: &Path, output: &Path, dpi: u16) -> Result<u64> {
+    let bytes = Arc::new(std::fs::read(input)?);
+    let pdf = HayroPdf::new(Arc::clone(&bytes))
+        .map_err(|e| WandelError::ImageDecode(format!("Failed to parse PDF: {:?}", e)))?;
+    let total_pages = pdf.pages().len();
+    if total_pages == 0 {
+        return Err(WandelError::ImageDecode("PDF contains no pages".into()));
+    }
+
+    let scale = f32::from(dpi.clamp(72, 300)) / 72.0;
+
+    let pages: Result<Vec<PreparedPdfPage>> = (0..total_pages)
+        .into_par_iter()
+        .map(|idx| {
+            let thread_pdf = HayroPdf::new(Arc::clone(&bytes))
+                .map_err(|e| WandelError::ImageDecode(format!("PDF parse error: {:?}", e)))?;
+            let page = thread_pdf
+                .pages()
+                .get(idx)
+                .ok_or_else(|| WandelError::ImageDecode("Page index out of bounds".into()))?;
+            let cache = RenderCache::new();
+            let pixmap = hayro::render(
+                page,
+                &cache,
+                &InterpreterSettings::default(),
+                &RenderSettings::default(),
+                &PixmapSettings {
+                    x_scale: scale,
+                    y_scale: scale,
+                    bg_color: WHITE,
+                },
+            );
+            let img = pixmap_to_dynamic_image(pixmap)?;
+            let mut rgb = img.to_rgb8();
+            // Smooth dark-mode palette inversion: white (255) -> zinc-900 (24,24,27), black (0) -> zinc-200 (228,228,231)
+            for px in rgb.as_mut().as_chunks_mut::<3>().0 {
+                let r = 255.0 - f32::from(px[0]);
+                let g = 255.0 - f32::from(px[1]);
+                let b = 255.0 - f32::from(px[2]);
+                px[0] = (24.0 + r * (204.0 / 255.0)).round().clamp(0.0, 255.0) as u8;
+                px[1] = (24.0 + g * (204.0 / 255.0)).round().clamp(0.0, 255.0) as u8;
+                px[2] = (27.0 + b * (204.0 / 255.0)).round().clamp(0.0, 255.0) as u8;
+            }
+            let (w, h) = (rgb.width(), rgb.height());
+            let mut jpeg_bytes = Vec::new();
+            let mut enc = jpeg_encoder::Encoder::new(&mut jpeg_bytes, 84);
+            enc.set_progressive(false);
+            enc.encode(
+                rgb.as_raw(),
+                w as u16,
+                h as u16,
+                jpeg_encoder::ColorType::Rgb,
+            )
+            .map_err(|e| WandelError::ImageEncode(format!("Dark PDF JPEG error: {}", e)))?;
+            Ok(PreparedPdfPage {
+                jpeg_bytes,
+                width_px: w,
+                height_px: h,
+            })
+        })
+        .collect();
+
+    let pages = pages?;
+
+    let mut out_pdf = Pdf::new();
+    let catalog_id = Ref::new(1);
+    let page_tree_id = Ref::new(2);
+    let mut next_id = 3i32;
+    let mut page_ids = Vec::with_capacity(pages.len());
+    let mut page_triples = Vec::with_capacity(pages.len());
+
+    for _ in &pages {
+        let p_id = Ref::new(next_id);
+        let img_id = Ref::new(next_id + 1);
+        let content_id = Ref::new(next_id + 2);
+        next_id += 3;
+        page_ids.push(p_id);
+        page_triples.push((p_id, img_id, content_id));
+    }
+
+    out_pdf.catalog(catalog_id).pages(page_tree_id);
+    out_pdf
+        .pages(page_tree_id)
+        .kids(page_ids.iter().copied())
+        .count(page_ids.len() as i32);
+
+    for (page_data, (page_id, img_id, content_id)) in pages.iter().zip(page_triples) {
+        let w = (page_data.width_px as f32) / scale;
+        let h = (page_data.height_px as f32) / scale;
+        let mut page = out_pdf.page(page_id);
+        page.media_box(Rect::new(0.0, 0.0, w, h));
+        page.parent(page_tree_id);
+        page.contents(content_id);
+        page.resources().x_objects().pair(Name(b"Im0"), img_id);
+        page.finish();
+
+        let mut img_xobj = out_pdf.image_xobject(img_id, &page_data.jpeg_bytes);
+        img_xobj.filter(Filter::DctDecode);
+        img_xobj.width(page_data.width_px as i32);
+        img_xobj.height(page_data.height_px as i32);
+        img_xobj.color_space().device_rgb();
+        img_xobj.bits_per_component(8);
+        img_xobj.finish();
+
+        let mut content = Content::new();
+        content.save_state();
+        content.transform([w, 0.0, 0.0, h, 0.0, 0.0]);
+        content.x_object(Name(b"Im0"));
+        content.restore_state();
+        out_pdf.stream(content_id, &content.finish());
+    }
+
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let final_bytes = out_pdf.finish();
+    std::fs::write(output, &final_bytes)?;
+    Ok(final_bytes.len() as u64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -24,11 +24,11 @@ Stop uploading private photos, screen recordings, and confidential PDFs to slow,
 
 | Category | What You Can Do |
 | :--- | :--- |
-| **Images** | Convert & compress **PNG, JPG, WebP, AVIF, JPEG XL, HEIC, SVG, GIF, TIFF, BMP, ICO** · Target max size (`≤ KB`) · Resize, rotate, flip, visual crop, aspect pad, **Auto-Trim borders**, **Auto-Levels** · Color presets (Sepia, Warm, Cool, Vintage, B&W+, Invert) · Blur, pixelate, vignette, rounded corners · **Screenshot Beautifier** (gradient frame + drop shadow) · Logo, text & diagonal tiled watermarks · Contact Sheet grids, Before/After comparisons, Image Grid Slicer (`3×1` / `3×3`), Sprite Sheets + CSS maps, Responsive `srcset` bundles, PWA Icon Packs, Dominant Color Palette, QR Codes, Base64 Data URLs, and Duplicate Finder |
-| **Video & Audio** | Convert **MP4 (H.264 / H.265), WebM (VP9 / AV1), MOV, MKV, AVI, Animated GIF, Animated WebP** and **MP3, AAC, OGG (Opus), WAV, FLAC** · Instant lossless **Fast Remux** (zero re-encoding) · **Social 9:16 / 1:1 / 4:5 Blur-Pad Reframing** · Visual trim, Reverse & Boomerang loops, speed (`0.5×–4×`), subtitle burn-in, audio track replace, video watermark, deinterlace & sharpen · **Voice Denoise (FFT)**, EBU R128 loudness normalization, volume gain (dB), silence trim, fade in/out · Merge videos/audio, lossless segment splitter, 3×3 storyboards, frame extractor, audio waveform PNGs, Image Slideshows, and Cover + Audio MP4 audiograms |
-| **PDF Toolkit** | **100% offline & lossless**: Merge images into PDF (Fit / A4 / Letter), rasterize PDF to images (72 / 150 / 300 DPI), merge PDFs, split/extract pages, compress PDFs, rotate pages, reorder pages, stamp diagonal text (`CONFIDENTIAL`), add page numbers, extract embedded images, and scrub identifying metadata |
-| **Workflow** | Drag-and-drop files or folders · Clipboard paste (`⌘V`) · **Watch Folders** (Auto-Wandel) & Menu Bar / System Tray mode · Smart rename templates & folder preservation · ZIP bundle export & safe Trash originals · Custom presets (JSON import/export) · Queue search/sort & CSV batch reports · Command Palette (`⌘K`) · English & German UI |
-| **CLI & AI (MCP)** | Full headless CLI (`wandel`) and built-in **Model Context Protocol (MCP)** server (`wandel mcp`) with parallel tool execution, directory sandboxing (`--allowed-dir`), dry-run previews, and multi-step composable pipelines (`wandel_pipeline`) |
+| **Images** | Convert & compress **PNG, JPG, WebP, AVIF, JPEG XL, HEIC, SVG, GIF, TIFF, BMP, ICO** · **Multi-Format Fan-Out** (`--also avif,jpg`) · Target max size (`≤ KB`) · Resize, rotate, flip, visual crop, aspect pad, **Auto-Trim**, **Auto-Levels** · **Privacy Blur Redaction** & **Smart Background Removal** · Color presets, blur, pixelate, vignette, rounded corners, **Screenshot Beautifier** · Logo, text & tiled watermarks · **Social Media Kit (5 sizes)**, **Pure-Rust Animated GIF Maker & Frame Extractor**, Contact Sheets, Comparisons, Grid Slicer, Sprite Sheets + CSS, Responsive `srcset`, PWA Icon Packs, Color Palettes, QR Codes, Base64 Data URLs, and Duplicate Finder |
+| **Video & Audio** | Convert **MP4 (H.264 / H.265), WebM (VP9 / AV1), MOV, MKV, AVI, Animated GIF, Animated WebP** and **MP3, AAC, OGG (Opus), WAV, FLAC** · Instant lossless **Fast Remux** · **Social 9:16 / 1:1 / 4:5 Blur-Pad Reframing** · Visual trim, Reverse & Boomerang loops, speed (`0.5×–4×`), subtitle burn-in, audio track replace, video watermark, deinterlace & sharpen · **Voice Denoise (FFT)**, **EBU R128 loudness normalization**, volume gain (dB), **auto-trim silence**, fade in/out · Merge videos/audio, lossless segment splitter, 3×3 storyboards, **Poster Frame extractor**, frame sequences, waveform PNGs, Slideshows, and Cover + Audio MP4 audiograms |
+| **PDF Toolkit** | **100% offline & pure-Rust**: **Visual Page Organizer** (drag-to-reorder, per-page rotate/duplicate/delete), **Dark-Mode PDF converter**, **Offline PDF Text Extraction (.txt)**, merge images into PDF, rasterize PDF to images, merge PDFs, split/extract pages, compress PDFs, rotate/reorder pages, stamp diagonal text, add page numbers, extract embedded images, and scrub identifying metadata |
+| **Workflow** | Drag-and-drop files or folders · Clipboard paste (`⌘V`) · **Desktop Composable Pipeline Runner** · **Watch Folders** & Menu Bar / System Tray mode · Responsive mobile/narrow tab layout · Smart rename templates & folder preservation · ZIP bundle export & safe Trash originals · Custom presets · Queue search/sort & **History CSV export** · Command Palette (`⌘K`) · English & German UI |
+| **CLI & AI (MCP)** | Full headless CLI (`wandel`) and built-in **Model Context Protocol (MCP)** server over **stdio** or **Local HTTP** (`wandel mcp --http 127.0.0.1:3847 --token ...`) with parallel execution, directory sandboxing (`--allowed-dir`), dry-run previews, and multi-step composable pipelines (`wandel_pipeline`) |
 
 ---
 
@@ -53,19 +53,24 @@ Grab the latest installer for your system from the [**GitHub Releases**](https:/
 4. **Menu Bar Background Mode:** Enable **Minimize to Tray** in Settings to keep Watch Folders converting files silently in the background from your macOS Menu Bar.
 
 ### 3. Quick Start: Headless CLI & MCP Server
-Prefer the terminal or want to connect Wandel to **Claude Desktop, Cursor, Windsurf, or Antigravity**? Download the standalone `wandel-cli` archive from [Releases](https://github.com/meghrazchi/wandel/releases) (or build from source):
+Prefer the terminal or want to connect Wandel to **Claude Desktop, Cursor, Windsurf, or Antigravity**? Install the standalone `wandel` CLI/MCP binary in one line (macOS & Linux, with SHA-256 verification) or grab the Windows archive from [Releases](https://github.com/meghrazchi/wandel/releases):
 
 ```bash
+# One-line installer (macOS & Linux)
+curl -fsSL https://raw.githubusercontent.com/meghrazchi/wandel/main/packaging/install.sh | bash
+
 # Batch-convert a folder of photos to WebP (max 1920px wide)
 wandel convert ./photos --to webp --quality 82 --max-width 1920
 
-# Losslessly scrub metadata & number a PDF
-wandel pdf-clean report.pdf -o clean.pdf
-wandel pdf-number clean.pdf -o ready.pdf --format "Page {n} of {total}"
+# Master podcast audio (EBU R128 loudness + silence trim + voice denoise)
+wandel convert episode.wav --to mp3 --normalize-audio --trim-silence --denoise-audio
 
-# Start the headless MCP server (optional --allowed-dir sandbox)
+# Start the headless MCP server (stdio or local HTTP)
 wandel mcp --allowed-dir ~/Documents/media
+wandel mcp --http 127.0.0.1:3847 --token my-secret --allowed-dir ~/Documents/media
 ```
+
+> **Package Manager Manifests:** Ready-to-use Homebrew Cask ([packaging/homebrew/wandel.rb](packaging/homebrew/wandel.rb)) and Windows Scoop manifest ([packaging/scoop/wandel.json](packaging/scoop/wandel.json)) are included in the repository.
 
 Add to your MCP client config (or click **MCP** inside Wandel Desktop to copy your pre-filled config):
 

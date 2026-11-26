@@ -1907,3 +1907,43 @@ pub fn split_media_segments(
 
     Ok(parts)
 }
+
+/// Extracts a single crisp poster/cover frame from a video at `timestamp_secs` (fast `-ss` seek).
+pub fn extract_video_poster(
+    input: &Path,
+    output: &Path,
+    timestamp_secs: f32,
+    ffmpeg_path: &Path,
+) -> Result<u64> {
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let ts = timestamp_secs.max(0.0);
+    let out = Command::new(ffmpeg_path)
+        .args([
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-ss",
+            &format!("{:.3}", ts),
+            "-i",
+        ])
+        .arg(input)
+        .args(["-frames:v", "1", "-q:v", "2"])
+        .arg(output)
+        .output()?;
+
+    if !out.status.success() {
+        return Err(WandelError::FfmpegFailed(
+            String::from_utf8_lossy(&out.stderr).trim().to_string(),
+        ));
+    }
+    let size = std::fs::metadata(output)?.len();
+    if size == 0 {
+        return Err(WandelError::FfmpegFailed(
+            "Poster frame extraction produced an empty file".into(),
+        ));
+    }
+    Ok(size)
+}

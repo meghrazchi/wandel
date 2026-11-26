@@ -218,13 +218,55 @@ pub fn run_batch<F>(
                             percent: 25.0,
                         });
 
-                        match convert_image(&job.path, &out_path, img_settings, ffmpeg_path) {
-                            Ok(bytes) => {
+                        let extra_targets: Vec<(crate::formats::ImageFormat, PathBuf)> =
+                            img_settings
+                                .extra_formats
+                                .iter()
+                                .copied()
+                                .filter(|f| *f != img_settings.format && f.can_encode())
+                                .filter_map(|extra_fmt| {
+                                    alloc
+                                        .allocate_with_context(
+                                            &job.path,
+                                            extra_fmt.extension(),
+                                            &settings.output,
+                                            &naming_ctx,
+                                        )
+                                        .ok()
+                                        .map(|p| (extra_fmt, p))
+                                })
+                                .collect();
+
+                        let conv_result = if extra_targets.is_empty() {
+                            convert_image(&job.path, &out_path, img_settings, ffmpeg_path)
+                                .map(|b| (b, Vec::new()))
+                        } else {
+                            crate::image_engine::convert_image_multi(
+                                &job.path,
+                                &out_path,
+                                &extra_targets,
+                                img_settings,
+                                ffmpeg_path,
+                            )
+                        };
+
+                        match conv_result {
+                            Ok((bytes, extra_done)) => {
                                 if cancel.load(Ordering::Relaxed) {
                                     let _ = std::fs::remove_file(&out_path);
+                                    for (ep, _) in &extra_done {
+                                        let _ = std::fs::remove_file(ep);
+                                    }
                                     cancel_cnt.fetch_add(1, Ordering::Relaxed);
                                     emit_ref(ProgressEvent::FileCancelled { id: job.id.clone() });
                                     return;
+                                }
+                                if !extra_done.is_empty() {
+                                    if let Ok(mut guard) = outputs_ref.lock() {
+                                        for (ep, _) in &extra_done {
+                                            guard.push(ep.clone());
+                                        }
+                                    }
                                 }
                                 if settings.output.trash_originals && out_path != job.path {
                                     let _ = trash::delete(&job.path);

@@ -800,3 +800,133 @@ pub async fn organize_pdf_pages(
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn run_pipeline_recipe(
+    recipe_json: String,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let recipe: serde_json::Value =
+        serde_json::from_str(&recipe_json).map_err(|e| format!("Invalid recipe JSON: {}", e))?;
+    let ffmpeg = state.ffmpeg_path.clone();
+    let ffprobe = state.ffprobe_path.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let server = wandel_mcp::McpServer::new(ffmpeg, ffprobe);
+        let (payload, is_err) = server.run_pipeline_recipe(&recipe);
+        if is_err {
+            Err(payload
+                .get("error")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .unwrap_or_else(|| payload.to_string()))
+        } else {
+            Ok(payload)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn export_pdf_text_file(
+    path: String,
+    output_path: String,
+) -> Result<(usize, u64), String> {
+    let input = PathBuf::from(path);
+    let out = PathBuf::from(output_path);
+    tauri::async_runtime::spawn_blocking(move || wandel_core::export_pdf_text_file(&input, &out))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn generate_social_kit(
+    path: String,
+    output_dir: String,
+    format: wandel_core::ImageFormat,
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let ffmpeg = state.ffmpeg_path.clone();
+    let input = PathBuf::from(path);
+    let out = PathBuf::from(output_dir);
+    tauri::async_runtime::spawn_blocking(move || {
+        wandel_core::generate_social_kit(&input, &out, format, ffmpeg.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn convert_pdf_dark_mode(
+    path: String,
+    output_path: String,
+    dpi: Option<u16>,
+) -> Result<u64, String> {
+    let input = PathBuf::from(path);
+    let out = PathBuf::from(output_path);
+    let d = dpi.unwrap_or(150);
+    tauri::async_runtime::spawn_blocking(move || wandel_core::convert_pdf_dark_mode(&input, &out, d))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn extract_video_poster(
+    path: String,
+    output_path: String,
+    timestamp_secs: Option<f32>,
+    state: State<'_, AppState>,
+) -> Result<u64, String> {
+    let ffmpeg = state
+        .ffmpeg_path
+        .clone()
+        .ok_or_else(|| "FFmpeg binary not found".to_string())?;
+    let input = PathBuf::from(path);
+    let out = PathBuf::from(output_path);
+    let ts = timestamp_secs.unwrap_or(1.0);
+    tauri::async_runtime::spawn_blocking(move || {
+        wandel_core::extract_video_poster(&input, &out, ts, &ffmpeg)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn create_animated_gif(
+    paths: Vec<String>,
+    output_path: String,
+    delay_ms: Option<u32>,
+    max_width: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<u64, String> {
+    let ffmpeg = state.ffmpeg_path.clone();
+    let inputs: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+    let out = PathBuf::from(output_path);
+    let delay = delay_ms.unwrap_or(300);
+    tauri::async_runtime::spawn_blocking(move || {
+        wandel_core::create_animated_gif(&inputs, &out, delay, max_width, ffmpeg.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn extract_gif_frames(
+    path: String,
+    output_dir: String,
+    format: wandel_core::ImageFormat,
+) -> Result<Vec<String>, String> {
+    let input = PathBuf::from(path);
+    let out = PathBuf::from(output_dir);
+    tauri::async_runtime::spawn_blocking(move || {
+        wandel_core::extract_gif_frames(&input, &out, format)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}

@@ -450,6 +450,12 @@ where
     if let Some(v) = args.get("denoiseAudio").and_then(|v| v.as_bool()) {
         settings.video.denoise_audio = v;
     }
+    if let Some(v) = args.get("normalizeAudio").and_then(|v| v.as_bool()) {
+        settings.video.normalize_loudness = v;
+    }
+    if let Some(v) = args.get("trimSilence").and_then(|v| v.as_bool()) {
+        settings.video.trim_silence = v;
+    }
     if let Some(v) = args.get("deinterlace").and_then(|v| v.as_bool()) {
         settings.video.deinterlace = v;
     }
@@ -469,6 +475,42 @@ where
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
         });
+    }
+    if let Some(bg_col) = str_arg(args, "removeBgColor") {
+        if !bg_col.trim().is_empty() {
+            settings.image.remove_bg_color = Some(bg_col.trim().to_string());
+        }
+    }
+    if let Some(tol) = args.get("removeBgTolerance").and_then(|v| v.as_u64()) {
+        settings.image.remove_bg_tolerance = tol.min(120) as u8;
+    }
+    if let Some(also) = args.get("alsoFormats").and_then(|v| v.as_array()) {
+        for v in also {
+            if let Some(s) = v.as_str() {
+                if let Some(fmt) = ImageFormat::from_extension(&s.trim().to_ascii_lowercase()) {
+                    if fmt.can_encode() && !settings.image.extra_formats.contains(&fmt) {
+                        settings.image.extra_formats.push(fmt);
+                    }
+                }
+            }
+        }
+    }
+    if let Some(regions) = args.get("blurRegions").and_then(|v| v.as_array()) {
+        for r in regions {
+            if let (Some(x), Some(y), Some(width), Some(height)) = (
+                r.get("x").and_then(|v| v.as_f64()),
+                r.get("y").and_then(|v| v.as_f64()),
+                r.get("width").and_then(|v| v.as_f64()),
+                r.get("height").and_then(|v| v.as_f64()),
+            ) {
+                settings.image.blur_regions.push(wandel_core::NormalizedCrop {
+                    x: x as f32,
+                    y: y as f32,
+                    width: width as f32,
+                    height: height as f32,
+                });
+            }
+        }
     }
 
     settings.output = OutputSettings {
@@ -743,6 +785,23 @@ fn tool_pdf_ops(ctx: &McpContext, args: &Value) -> ToolCallOutcome {
                 .map(|bytes| json!({ "output": output_str, "bytes": bytes }))
                 .map_err(|e| e.to_string())
         }
+        "extract_text" => {
+            let Some(input) = str_arg(args, "input").map(PathBuf::from) else {
+                return ToolCallOutcome::err("'input' is required for extract_text");
+            };
+            wandel_core::export_pdf_text_file(&input, &output)
+                .map(|(pages, bytes)| json!({ "output": output_str, "pages": pages, "bytes": bytes }))
+                .map_err(|e| e.to_string())
+        }
+        "dark_mode" => {
+            let Some(input) = str_arg(args, "input").map(PathBuf::from) else {
+                return ToolCallOutcome::err("'input' is required for dark_mode");
+            };
+            let dpi = args.get("dpi").and_then(|v| v.as_u64()).unwrap_or(150) as u16;
+            wandel_core::convert_pdf_dark_mode(&input, &output, dpi)
+                .map(|bytes| json!({ "output": output_str, "bytes": bytes, "dpi": dpi }))
+                .map_err(|e| e.to_string())
+        }
         other => Err(format!("Unknown PDF action '{}'", other)),
     };
 
@@ -909,6 +968,43 @@ fn tool_image_tools(ctx: &McpContext, args: &Value) -> ToolCallOutcome {
                 .map(|exp| serde_json::to_value(exp).unwrap_or_default())
                 .map_err(|e| e.to_string())
         }
+        "social_kit" => {
+            let Some(input) = str_arg(args, "input").map(PathBuf::from) else {
+                return ToolCallOutcome::err("'input' is required");
+            };
+            let Some(out) = str_arg(args, "output").map(PathBuf::from) else {
+                return ToolCallOutcome::err("'output' directory is required");
+            };
+            wandel_core::generate_social_kit(
+                &input,
+                &out,
+                img_settings.format,
+                ctx.ffmpeg_path.as_deref(),
+            )
+            .map(|files| json!({ "outputDir": out, "count": files.len(), "files": files }))
+            .map_err(|e| e.to_string())
+        }
+        "make_gif" => {
+            let inputs = path_list_arg(args, "inputs");
+            let Some(out) = str_arg(args, "output").map(PathBuf::from) else {
+                return ToolCallOutcome::err("'output' GIF path is required");
+            };
+            let delay_ms = args.get("sizePx").and_then(|v| v.as_u64()).unwrap_or(300) as u32;
+            wandel_core::create_animated_gif(&inputs, &out, delay_ms, None, ctx.ffmpeg_path.as_deref())
+                .map(|bytes| json!({ "output": out, "frames": inputs.len(), "bytes": bytes }))
+                .map_err(|e| e.to_string())
+        }
+        "gif_frames" => {
+            let Some(input) = str_arg(args, "input").map(PathBuf::from) else {
+                return ToolCallOutcome::err("'input' GIF path is required");
+            };
+            let Some(out) = str_arg(args, "output").map(PathBuf::from) else {
+                return ToolCallOutcome::err("'output' directory is required");
+            };
+            wandel_core::extract_gif_frames(&input, &out, img_settings.format)
+                .map(|files| json!({ "outputDir": out, "count": files.len(), "files": files }))
+                .map_err(|e| e.to_string())
+        }
         other => Err(format!("Unknown image action '{}'", other)),
     };
 
@@ -1018,6 +1114,15 @@ fn tool_media_tools(ctx: &McpContext, args: &Value) -> ToolCallOutcome {
             let secs = args.get("seconds").and_then(|v| v.as_f64()).unwrap_or(60.0) as f32;
             split_media_segments(&input, &output, secs, ffmpeg)
                 .map(|parts| json!({ "outputDir": output_str, "count": parts.len(), "parts": parts }))
+                .map_err(|e| e.to_string())
+        }
+        "poster" => {
+            let Some(input) = str_arg(args, "input").map(PathBuf::from) else {
+                return ToolCallOutcome::err("'input' video path is required");
+            };
+            let at = args.get("seconds").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
+            wandel_core::extract_video_poster(&input, &output, at, ffmpeg)
+                .map(|bytes| json!({ "output": output_str, "bytes": bytes }))
                 .map_err(|e| e.to_string())
         }
         other => Err(format!("Unknown media action '{}'", other)),

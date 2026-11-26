@@ -1,4 +1,4 @@
-import { FolderOpen, History, Trash2, X } from "lucide-react";
+import { Download, FolderOpen, History, Trash2, X } from "lucide-react";
 import { HistoryEntry, LifetimeStats, formatBytes } from "../types";
 
 interface HistoryDrawerProps {
@@ -22,6 +22,32 @@ export function HistoryDrawer({
       ? Math.round((1 - stats.totalOutputBytes / stats.totalInputBytes) * 100)
       : 0;
 
+  const handleExportCsv = () => {
+    const header = "timestamp,fileName,inputBytes,outputBytes,savedPercent,source,outputPath";
+    const rows = entries.map((e) => {
+      const pct =
+        e.inputBytes > 0 ? Math.round((1 - e.outputBytes / e.inputBytes) * 100) : 0;
+      const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
+      return [
+        new Date(e.timestamp).toISOString(),
+        esc(e.fileName),
+        e.inputBytes,
+        e.outputBytes,
+        pct,
+        e.source,
+        esc(e.outputPath),
+      ].join(",");
+    });
+    const csv = [header, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `wandel_history_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-xs"
@@ -40,14 +66,25 @@ export function HistoryDrawer({
           </div>
           <div className="flex items-center gap-1.5">
             {entries.length > 0 && (
-              <button
-                type="button"
-                onClick={onClear}
-                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-zinc-500 transition hover:bg-red-500/10 hover:text-red-500 cursor-pointer"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                Clear
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={handleExportCsv}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-indigo-600 transition hover:bg-indigo-500/10 dark:text-indigo-400 cursor-pointer"
+                  title="Export conversion history as CSV"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={onClear}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-zinc-500 transition hover:bg-red-500/10 hover:text-red-500 cursor-pointer"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Clear
+                </button>
+              </>
             )}
             <button
               type="button"

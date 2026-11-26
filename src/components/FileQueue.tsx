@@ -73,6 +73,8 @@ interface FileQueueProps {
   onPreviewItem: (item: QueueItem) => void;
   onInspectItem: (item: QueueItem) => void;
   onGenerateIconPack: (item: QueueItem) => void;
+  onGenerateSocialKit: (item: QueueItem) => void;
+  onExtractGifFrames: (item: QueueItem) => void;
   onOverrideImageFormat: (id: string, format: ImageFormat | undefined) => void;
   onOverrideVideoTarget: (id: string, target: VideoTarget | undefined) => void;
   onMoveItem: (index: number, direction: -1 | 1) => void;
@@ -81,6 +83,7 @@ interface FileQueueProps {
   onCreateGrid: () => void;
   onCompareImages: () => void;
   onCreateSlideshow: () => void;
+  onCreateAnimatedGif: () => void;
   onCreateSpriteSheet: () => void;
   onMergeVideos: () => void;
   onMergePdfs: () => void;
@@ -92,6 +95,8 @@ interface FileQueueProps {
   onStampPdf: (item: QueueItem) => void;
   onNumberPdf: (item: QueueItem) => void;
   onExtractPdfImages: (item: QueueItem) => void;
+  onExtractPdfText: (item: QueueItem) => void;
+  onDarkModePdf: (item: QueueItem) => void;
   onScrubPdf: (item: QueueItem) => void;
   onPaletteItem: (item: QueueItem) => void;
   onDataUrlItem: (item: QueueItem) => void;
@@ -99,6 +104,7 @@ interface FileQueueProps {
   onSliceImage: (item: QueueItem) => void;
   onStoryboardItem: (item: QueueItem) => void;
   onExtractFrames: (item: QueueItem) => void;
+  onExtractPoster: (item: QueueItem) => void;
   onAudioWaveform: (item: QueueItem) => void;
   onPodcastVideo: (item: QueueItem) => void;
   onSplitMedia: (item: QueueItem) => void;
@@ -106,6 +112,7 @@ interface FileQueueProps {
   onRequeueOutputs: () => void;
   onMergeAudio: () => void;
   onFindDuplicates: () => void;
+  onOpenPipeline: () => void;
 }
 
 export function FileQueue({
@@ -121,6 +128,8 @@ export function FileQueue({
   onPreviewItem,
   onInspectItem,
   onGenerateIconPack,
+  onGenerateSocialKit,
+  onExtractGifFrames,
   onOverrideImageFormat,
   onOverrideVideoTarget,
   onMoveItem,
@@ -129,6 +138,7 @@ export function FileQueue({
   onCreateGrid,
   onCompareImages,
   onCreateSlideshow,
+  onCreateAnimatedGif,
   onCreateSpriteSheet,
   onMergeVideos,
   onMergePdfs,
@@ -140,6 +150,8 @@ export function FileQueue({
   onStampPdf,
   onNumberPdf,
   onExtractPdfImages,
+  onExtractPdfText,
+  onDarkModePdf,
   onScrubPdf,
   onPaletteItem,
   onDataUrlItem,
@@ -147,6 +159,7 @@ export function FileQueue({
   onSliceImage,
   onStoryboardItem,
   onExtractFrames,
+  onExtractPoster,
   onAudioWaveform,
   onPodcastVideo,
   onSplitMedia,
@@ -154,6 +167,7 @@ export function FileQueue({
   onRequeueOutputs,
   onMergeAudio,
   onFindDuplicates,
+  onOpenPipeline,
 }: FileQueueProps) {
   const [filter, setFilter] = useState<"all" | "image" | "video" | "failed">("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -190,12 +204,7 @@ export function FileQueue({
   const imageCount = rawImageCount + rawPdfCount;
   const videoCount = rawVideoCount + rawAudioCount;
 
-  const hasBatchTools =
-    rawImageCount >= 2 ||
-    rawPdfCount >= 2 ||
-    rawVideoCount >= 2 ||
-    rawAudioCount >= 2 ||
-    completedCount > 0;
+  const hasBatchTools = items.length > 0;
 
   const q = searchQuery.trim().toLowerCase();
   const visibleItems = useMemo(
@@ -324,6 +333,7 @@ export function FileQueue({
                       <MenuRow icon={<Grid2x2 className="h-3.5 w-3.5 text-violet-500" />} label="Contact Sheet Grid" onClick={() => { setBatchMenuOpen(false); onCreateGrid(); }} />
                       <MenuRow icon={<Columns2 className="h-3.5 w-3.5 text-cyan-500" />} label="Before / After Compare" onClick={() => { setBatchMenuOpen(false); onCompareImages(); }} />
                       <MenuRow icon={<Video className="h-3.5 w-3.5 text-pink-500" />} label="Slideshow MP4 Video" onClick={() => { setBatchMenuOpen(false); onCreateSlideshow(); }} />
+                      <MenuRow icon={<Film className="h-3.5 w-3.5 text-emerald-500" />} label="Create Animated GIF" onClick={() => { setBatchMenuOpen(false); onCreateAnimatedGif(); }} />
                       <MenuRow icon={<Layers className="h-3.5 w-3.5 text-teal-500" />} label="Sprite Sheet + CSS Map" onClick={() => { setBatchMenuOpen(false); onCreateSpriteSheet(); }} />
                       <MenuRow icon={<CopyCheck className="h-3.5 w-3.5 text-amber-500" />} label="Find & Remove Duplicates" onClick={() => { setBatchMenuOpen(false); onFindDuplicates(); }} />
                     </>
@@ -334,6 +344,8 @@ export function FileQueue({
                   {rawVideoCount >= 2 && (
                     <MenuRow icon={<Film className="h-3.5 w-3.5 text-indigo-500" />} label={`Merge ${rawVideoCount} Videos`} onClick={() => { setBatchMenuOpen(false); onMergeVideos(); }} />
                   )}
+                  <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
+                  <MenuRow icon={<Wrench className="h-3.5 w-3.5 text-indigo-500" />} label="Run Multi-Step Pipeline..." onClick={() => { setBatchMenuOpen(false); onOpenPipeline(); }} />
                   {rawAudioCount >= 2 && (
                     <MenuRow icon={<Music className="h-3.5 w-3.5 text-violet-500" />} label={`Merge ${rawAudioCount} Audio Tracks`} onClick={() => { setBatchMenuOpen(false); onMergeAudio(); }} />
                   )}
@@ -683,6 +695,10 @@ export function FileQueue({
                               <MenuRow icon={<MonitorSmartphone className="h-3.5 w-3.5 text-teal-500" />} label="Responsive srcset Bundle" onClick={() => { setOpenRowMenuId(null); onResponsiveSetItem(item); }} />
                               <MenuRow icon={<Grid3x3 className="h-3.5 w-3.5 text-amber-500" />} label="Slice Grid (3×1 / 3×3)" onClick={() => { setOpenRowMenuId(null); onSliceImage(item); }} />
                               <MenuRow icon={<Package className="h-3.5 w-3.5 text-violet-500" />} label="Favicon & App Icon Pack" onClick={() => { setOpenRowMenuId(null); onGenerateIconPack(item); }} />
+                              <MenuRow icon={<LayoutGrid className="h-3.5 w-3.5 text-indigo-500" />} label="Social Media Kit (5 Sizes)" onClick={() => { setOpenRowMenuId(null); onGenerateSocialKit(item); }} />
+                              {item.sourceFormat.toUpperCase() === "GIF" && (
+                                <MenuRow icon={<Images className="h-3.5 w-3.5 text-emerald-500" />} label="Extract GIF Frames" onClick={() => { setOpenRowMenuId(null); onExtractGifFrames(item); }} />
+                              )}
                               <MenuRow icon={<Palette className="h-3.5 w-3.5 text-pink-500" />} label="Extract Color Palette" onClick={() => { setOpenRowMenuId(null); onPaletteItem(item); }} />
                               <MenuRow icon={<Code2 className="h-3.5 w-3.5 text-sky-500" />} label="Base64 Data URL" onClick={() => { setOpenRowMenuId(null); onDataUrlItem(item); }} />
                             </>
@@ -696,6 +712,8 @@ export function FileQueue({
                               <MenuRow icon={<Stamp className="h-3.5 w-3.5 text-red-500" />} label="Stamp Watermark Text" onClick={() => { setOpenRowMenuId(null); onStampPdf(item); }} />
                               <MenuRow icon={<Hash className="h-3.5 w-3.5 text-sky-500" />} label="Add Page Numbers" onClick={() => { setOpenRowMenuId(null); onNumberPdf(item); }} />
                               <MenuRow icon={<Images className="h-3.5 w-3.5 text-teal-500" />} label="Extract Embedded Images" onClick={() => { setOpenRowMenuId(null); onExtractPdfImages(item); }} />
+                              <MenuRow icon={<FileText className="h-3.5 w-3.5 text-indigo-500" />} label="Extract Text (.txt)" onClick={() => { setOpenRowMenuId(null); onExtractPdfText(item); }} />
+                              <MenuRow icon={<Eye className="h-3.5 w-3.5 text-violet-500" />} label="Convert to Dark Mode PDF" onClick={() => { setOpenRowMenuId(null); onDarkModePdf(item); }} />
                               <MenuRow icon={<ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />} label="Scrub Metadata (Privacy)" onClick={() => { setOpenRowMenuId(null); onScrubPdf(item); }} />
                               <MenuRow icon={<Minimize2 className="h-3.5 w-3.5 text-emerald-500" />} label="Compress PDF Size" onClick={() => { setOpenRowMenuId(null); onCompressPdf(item); }} />
                               <MenuRow icon={<Scissors className="h-3.5 w-3.5 text-rose-500" />} label="Split Page Range" onClick={() => { setOpenRowMenuId(null); onSplitPdf(item); }} />
@@ -705,6 +723,7 @@ export function FileQueue({
                           {item.mediaKind === "video" && (
                             <>
                               <MenuRow icon={<LayoutGrid className="h-3.5 w-3.5 text-indigo-500" />} label="3×3 Video Storyboard" onClick={() => { setOpenRowMenuId(null); onStoryboardItem(item); }} />
+                              <MenuRow icon={<ImageIcon className="h-3.5 w-3.5 text-emerald-500" />} label="Save Poster Frame (.jpg)" onClick={() => { setOpenRowMenuId(null); onExtractPoster(item); }} />
                               <MenuRow icon={<Images className="h-3.5 w-3.5 text-cyan-500" />} label="Extract Frame Sequence" onClick={() => { setOpenRowMenuId(null); onExtractFrames(item); }} />
                               <MenuRow icon={<Scissors className="h-3.5 w-3.5 text-amber-500" />} label="Split into Chunks (Lossless)" onClick={() => { setOpenRowMenuId(null); onSplitMedia(item); }} />
                             </>

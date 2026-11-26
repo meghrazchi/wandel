@@ -630,6 +630,54 @@ pub fn process_image_pipeline(
     apply_post_decode_pipeline(decoded, settings, is_svg, ffmpeg_path)
 }
 
+/// Decodes and transforms `input` ONCE, then encodes the primary destination plus every extra
+/// `(ImageFormat, PathBuf)` target in parallel across CPU cores via `rayon`.
+pub fn convert_image_multi(
+    input: &Path,
+    primary_dest: &Path,
+    extra_targets: &[(ImageFormat, PathBuf)],
+    settings: &ImageSettings,
+    ffmpeg_path: Option<&Path>,
+) -> Result<(u64, Vec<(PathBuf, u64)>)> {
+    use rayon::prelude::*;
+
+    if !settings.format.can_encode() {
+        return Err(WandelError::UnsupportedFormat(format!(
+            "Cannot encode to {}",
+            settings.format.display_name()
+        )));
+    }
+
+    let processed = process_image_pipeline(input, settings, ffmpeg_path)?;
+
+    let mut all_targets: Vec<(ImageFormat, PathBuf)> = Vec::with_capacity(1 + extra_targets.len());
+    all_targets.push((settings.format, primary_dest.to_path_buf()));
+    for (fmt, path) in extra_targets {
+        if fmt.can_encode() {
+            all_targets.push((*fmt, path.clone()));
+        }
+    }
+
+    let encoded: Result<Vec<(PathBuf, u64)>> = all_targets
+        .par_iter()
+        .map(|(fmt, dest)| {
+            let mut s = settings.clone();
+            s.format = *fmt;
+            let bytes = encode_image_with_target(&processed, &s, dest, ffmpeg_path)?;
+            Ok((dest.clone(), bytes))
+        })
+        .collect();
+
+    let mut results = encoded?;
+    let primary_bytes = results.first().map(|(_, b)| *b).unwrap_or(0);
+    let extras = if results.len() > 1 {
+        results.split_off(1)
+    } else {
+        Vec::new()
+    };
+    Ok((primary_bytes, extras))
+}
+
 /// Shared post-decode processing pipeline (used by both single images and PDF pages).
 pub fn apply_post_decode_pipeline(
     decoded: DynamicImage,
@@ -672,6 +720,18 @@ pub fn apply_post_decode_pipeline(
     }
     if settings.blur_sigma > 0.1 {
         processed = processed.blur(settings.blur_sigma.clamp(0.1, 20.0));
+    }
+    if !settings.blur_regions.is_empty() {
+        processed = apply_blur_regions(processed, &settings.blur_regions);
+    }
+    if let Some(ref bg_spec) = settings.remove_bg_color {
+        if !bg_spec.trim().is_empty() {
+            processed = apply_remove_background(
+                processed,
+                bg_spec.trim(),
+                settings.remove_bg_tolerance,
+            );
+        }
     }
     if settings.vignette_strength > 0.01 {
         processed = apply_vignette(processed, settings.vignette_strength.clamp(0.0, 1.0));
@@ -784,6 +844,81 @@ fn cached_fontdb() -> std::sync::Arc<resvg::usvg::fontdb::Database> {
         }
         std::sync::Arc::new(db)
     }))
+}
+
+fn apply_remove_background(img: DynamicImage, spec: &str, tolerance: u8) -> DynamicImage {
+    use rayon::prelude::*;
+
+    let mut rgba = img.into_rgba8();
+    let (w, h) = rgba.dimensions();
+    if w == 0 || h == 0 {
+        return DynamicImage::ImageRgba8(rgba);
+    }
+
+    let (kr, kg, kb): (f32, f32, f32) = if spec.eq_ignore_ascii_case("auto") {
+        let corners = [
+            *rgba.get_pixel(0, 0),
+            *rgba.get_pixel(w - 1, 0),
+            *rgba.get_pixel(0, h - 1),
+            *rgba.get_pixel(w - 1, h - 1),
+        ];
+        let r = corners.iter().map(|p| f32::from(p[0])).sum::<f32>() / 4.0;
+        let g = corners.iter().map(|p| f32::from(p[1])).sum::<f32>() / 4.0;
+        let b = corners.iter().map(|p| f32::from(p[2])).sum::<f32>() / 4.0;
+        (r, g, b)
+    } else {
+        let [r, g, b] = parse_hex_rgb(spec);
+        (f32::from(r), f32::from(g), f32::from(b))
+    };
+
+    let tol = f32::from(tolerance.clamp(0, 120));
+    let feather = 24.0f32;
+    let hard_cut = tol;
+    let soft_cut = tol + feather;
+
+    rgba.as_mut().par_chunks_exact_mut(4).for_each(|px| {
+        let dr = f32::from(px[0]) - kr;
+        let dg = f32::from(px[1]) - kg;
+        let db = f32::from(px[2]) - kb;
+        // Perceptual Euclidean RGB distance normalized to 0..255 scale
+        let dist = ((dr * dr + dg * dg + db * db) / 3.0).sqrt();
+        if dist <= hard_cut {
+            px[3] = 0;
+        } else if dist < soft_cut {
+            let t = (dist - hard_cut) / feather;
+            px[3] = ((f32::from(px[3])) * t).round().clamp(0.0, 255.0) as u8;
+        }
+    });
+
+    DynamicImage::ImageRgba8(rgba)
+}
+
+fn apply_blur_regions(img: DynamicImage, regions: &[crate::settings::NormalizedCrop]) -> DynamicImage {
+    let mut rgba = img.into_rgba8();
+    let (w, h) = rgba.dimensions();
+    if w == 0 || h == 0 {
+        return DynamicImage::ImageRgba8(rgba);
+    }
+
+    for r in regions {
+        let rx = (r.x.clamp(0.0, 1.0) * w as f32).floor() as u32;
+        let ry = (r.y.clamp(0.0, 1.0) * h as f32).floor() as u32;
+        let rw = (r.width.clamp(0.0, 1.0) * w as f32).ceil() as u32;
+        let rh = (r.height.clamp(0.0, 1.0) * h as f32).ceil() as u32;
+        if rx >= w || ry >= h {
+            continue;
+        }
+        let cw = rw.min(w - rx);
+        let ch = rh.min(h - ry);
+        if cw < 2 || ch < 2 {
+            continue;
+        }
+        let sub = image::imageops::crop_imm(&rgba, rx, ry, cw, ch).to_image();
+        let sigma = ((cw.min(ch) as f32) * 0.16).clamp(6.0, 24.0);
+        let blurred = DynamicImage::ImageRgba8(sub).blur(sigma).into_rgba8();
+        image::imageops::replace(&mut rgba, &blurred, i64::from(rx), i64::from(ry));
+    }
+    DynamicImage::ImageRgba8(rgba)
 }
 
 fn apply_auto_levels(img: DynamicImage) -> DynamicImage {
@@ -2332,6 +2467,197 @@ pub fn create_sprite_sheet(
         height: canvas_h,
         count: items.len(),
     })
+}
+
+/// Generates a 5-platform Social Media Kit (OG Card, YouTube Thumb, IG Square, IG Story, X Header)
+/// in parallel using smart center-fill aspect cropping and SIMD `fast_image_resize`.
+pub fn generate_social_kit(
+    input: &Path,
+    output_dir: &Path,
+    format: ImageFormat,
+    ffmpeg_path: Option<&Path>,
+) -> Result<Vec<String>> {
+    use rayon::prelude::*;
+
+    let out_fmt = if format.can_encode() {
+        format
+    } else {
+        ImageFormat::Jpg
+    };
+    let ext = out_fmt.extension();
+    let img = decode_image(input, &ResizeMode::Original, false, ffmpeg_path)?;
+    std::fs::create_dir_all(output_dir)?;
+
+    let specs: &[(&str, u32, u32)] = &[
+        ("og_card_1200x630", 1200, 630),
+        ("youtube_thumb_1280x720", 1280, 720),
+        ("instagram_square_1080x1080", 1080, 1080),
+        ("instagram_story_1080x1920", 1080, 1920),
+        ("x_header_1500x500", 1500, 500),
+    ];
+
+    let (src_w, src_h) = (img.width().max(1), img.height().max(1));
+
+    specs
+        .par_iter()
+        .map(|&(name, tw, th)| {
+            // Smart center-fill aspect crop so output fills target dimensions with zero distortion
+            let target_ratio = tw as f64 / th as f64;
+            let src_ratio = src_w as f64 / src_h as f64;
+            let (cw, ch) = if src_ratio > target_ratio {
+                let ch = src_h;
+                let cw = ((ch as f64 * target_ratio).round() as u32).clamp(1, src_w);
+                (cw, ch)
+            } else {
+                let cw = src_w;
+                let ch = ((cw as f64 / target_ratio).round() as u32).clamp(1, src_h);
+                (cw, ch)
+            };
+            let cx = (src_w - cw) / 2;
+            let cy = (src_h - ch) / 2;
+            let cropped = img.crop_imm(cx, cy, cw, ch);
+            let resized = resize_image(
+                cropped,
+                &ResizeMode::Exact {
+                    width: tw,
+                    height: th,
+                    keep_aspect_ratio: false,
+                },
+                false,
+            )?;
+            let dest = output_dir.join(format!("{}.{}", name, ext));
+            let enc_settings = ImageSettings {
+                format: out_fmt,
+                quality: 88,
+                ..Default::default()
+            };
+            encode_image_with_target(&resized, &enc_settings, &dest, ffmpeg_path)?;
+            Ok(dest.to_string_lossy().into_owned())
+        })
+        .collect()
+}
+
+/// Creates a looping animated GIF from a sequence of images completely in pure Rust
+/// (parallel decode + SIMD resize to uniform canvas, encoded via `image::codecs::gif::GifEncoder`).
+pub fn create_animated_gif(
+    inputs: &[PathBuf],
+    output: &Path,
+    delay_ms: u32,
+    max_width: Option<u32>,
+    ffmpeg_path: Option<&Path>,
+) -> Result<u64> {
+    use image::codecs::gif::{GifEncoder, Repeat};
+    use image::{Delay, Frame};
+    use rayon::prelude::*;
+
+    if inputs.len() < 2 {
+        return Err(WandelError::InvalidSettings(
+            "At least 2 images are required to create an animated GIF".into(),
+        ));
+    }
+
+    let first = decode_image(&inputs[0], &ResizeMode::Original, false, ffmpeg_path)?;
+    let (mut tw, mut th) = (first.width().max(1), first.height().max(1));
+    if let Some(mw) = max_width {
+        if mw > 0 && tw > mw {
+            let ratio = f64::from(mw) / f64::from(tw);
+            tw = mw;
+            th = ((f64::from(th) * ratio).round() as u32).max(1);
+        }
+    }
+
+    let resize_mode = ResizeMode::Exact {
+        width: tw,
+        height: th,
+        keep_aspect_ratio: false,
+    };
+
+    let rgba_frames: Result<Vec<image::RgbaImage>> = inputs
+        .par_iter()
+        .map(|p| {
+            let img = decode_image(p, &ResizeMode::Original, false, ffmpeg_path)?;
+            let normalized = if img.width() == tw && img.height() == th {
+                img
+            } else {
+                resize_image(img, &resize_mode, false)?
+            };
+            Ok(normalized.into_rgba8())
+        })
+        .collect();
+    let rgba_frames = rgba_frames?;
+
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let file = std::fs::File::create(output)?;
+    let mut encoder = GifEncoder::new_with_speed(file, 10);
+    encoder
+        .set_repeat(Repeat::Infinite)
+        .map_err(|e| WandelError::ImageEncode(format!("GIF repeat error: {}", e)))?;
+
+    let delay = Delay::from_numer_denom_ms(delay_ms.clamp(20, 10_000), 1);
+    for rgba in rgba_frames {
+        let frame = Frame::from_parts(rgba, 0, 0, delay);
+        encoder
+            .encode_frame(frame)
+            .map_err(|e| WandelError::ImageEncode(format!("GIF encode error: {}", e)))?;
+    }
+    drop(encoder);
+
+    let size = std::fs::metadata(output)?.len();
+    Ok(size)
+}
+
+/// Extracts every frame of an animated GIF into numbered images in parallel via `rayon` (pure Rust).
+pub fn extract_gif_frames(
+    input: &Path,
+    output_dir: &Path,
+    format: ImageFormat,
+) -> Result<Vec<String>> {
+    use image::codecs::gif::GifDecoder;
+    use image::AnimationDecoder;
+    use rayon::prelude::*;
+
+    let out_fmt = if format.can_encode() {
+        format
+    } else {
+        ImageFormat::Png
+    };
+    let ext = out_fmt.extension();
+    let stem = input
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("gif");
+
+    let file = std::fs::File::open(input)?;
+    let decoder = GifDecoder::new(std::io::BufReader::new(file))
+        .map_err(|e| WandelError::ImageDecode(format!("GIF decode error: {}", e)))?;
+    let frames = decoder
+        .into_frames()
+        .collect_frames()
+        .map_err(|e| WandelError::ImageDecode(format!("GIF frame error: {}", e)))?;
+
+    if frames.is_empty() {
+        return Err(WandelError::ImageDecode("GIF contains no frames".into()));
+    }
+
+    std::fs::create_dir_all(output_dir)?;
+
+    frames
+        .into_par_iter()
+        .enumerate()
+        .map(|(idx, frame)| {
+            let img = DynamicImage::ImageRgba8(frame.into_buffer());
+            let dest = output_dir.join(format!("{}_frame_{:04}.{}", stem, idx + 1, ext));
+            let enc_settings = ImageSettings {
+                format: out_fmt,
+                quality: 90,
+                ..Default::default()
+            };
+            encode_image_with_target(&img, &enc_settings, &dest, None)?;
+            Ok(dest.to_string_lossy().into_owned())
+        })
+        .collect()
 }
 
 #[cfg(test)]

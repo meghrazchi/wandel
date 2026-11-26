@@ -3,9 +3,13 @@ mod state;
 mod watcher;
 
 use state::{resolve_sidecar_binary, AppState};
+#[cfg(desktop)]
 use std::sync::atomic::Ordering;
+#[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem};
+#[cfg(desktop)]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+#[cfg(desktop)]
 use tauri::{Manager, WindowEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -14,10 +18,13 @@ pub fn run() {
     let ffprobe_path = resolve_sidecar_binary("ffprobe");
     let app_state = AppState::new(ffmpeg_path, ffprobe_path);
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(app_state)
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_opener::init());
+
+    #[cfg(desktop)]
+    let builder = builder
         .setup(|app| {
             let show_item = MenuItem::with_id(app, "show", "Open Wandel", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit Wandel", true, None::<&str>)?;
@@ -67,7 +74,9 @@ pub fn run() {
                     let _ = window.hide();
                 }
             }
-        })
+        });
+
+    builder
         .invoke_handler(tauri::generate_handler![
             commands::get_hardware_info,
             commands::get_preset_settings,
@@ -114,6 +123,13 @@ pub fn run() {
             commands::get_mcp_status,
             commands::render_pdf_thumbnails,
             commands::organize_pdf_pages,
+            commands::run_pipeline_recipe,
+            commands::export_pdf_text_file,
+            commands::generate_social_kit,
+            commands::convert_pdf_dark_mode,
+            commands::extract_video_poster,
+            commands::create_animated_gif,
+            commands::extract_gif_frames,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Wandel");

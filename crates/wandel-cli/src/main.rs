@@ -155,6 +155,14 @@ enum Commands {
         #[arg(long)]
         denoise_audio: bool,
 
+        /// Normalize audio loudness to EBU R128 (-16 LUFS)
+        #[arg(long)]
+        normalize_audio: bool,
+
+        /// Automatically trim leading and trailing silence on audio exports
+        #[arg(long)]
+        trim_silence: bool,
+
         /// Deinterlace interlaced video footage (yadif)
         #[arg(long)]
         deinterlace: bool,
@@ -174,6 +182,22 @@ enum Commands {
         /// Automatic 1%-99% luminance histogram contrast stretch for images
         #[arg(long)]
         auto_levels: bool,
+
+        /// Privacy blur redaction rectangle as normalized x,y,w,h (0.0..=1.0, repeatable)
+        #[arg(long = "blur-region")]
+        blur_regions: Vec<String>,
+
+        /// Remove solid background color ("auto" samples corners, or "#RRGGBB")
+        #[arg(long = "remove-bg")]
+        remove_bg: Option<String>,
+
+        /// Color distance tolerance (0..=120) for --remove-bg
+        #[arg(long = "remove-bg-tolerance", default_value_t = 24)]
+        remove_bg_tolerance: u8,
+
+        /// Additional comma-separated image formats to export simultaneously (e.g. avif,jpg)
+        #[arg(long)]
+        also: Option<String>,
     },
 
     /// Display detected CPU cores, FFmpeg status, and GPU hardware encoders
@@ -481,6 +505,61 @@ enum Commands {
         input: PathBuf,
         #[arg(short = 'o', long)]
         output: PathBuf,
+    },
+
+    /// Extract plain text page-by-page from a PDF offline (prints to stdout or saves to -o)
+    PdfText {
+        input: PathBuf,
+        #[arg(short = 'o', long)]
+        output: Option<PathBuf>,
+    },
+
+    /// Generate a 5-platform Social Media Kit (OG, YouTube, IG Square, IG Story, X Header)
+    SocialKit {
+        input: PathBuf,
+        #[arg(short = 'o', long)]
+        output_dir: PathBuf,
+        #[arg(short = 't', long, default_value = "jpg")]
+        to: String,
+    },
+
+    /// Extract a single crisp poster/cover frame from a video at a timestamp
+    Poster {
+        input: PathBuf,
+        #[arg(short = 'o', long)]
+        output: PathBuf,
+        #[arg(long, default_value_t = 1.0)]
+        at: f32,
+    },
+
+    /// Convert a light-background PDF into an eye-friendly dark-mode PDF
+    PdfDark {
+        input: PathBuf,
+        #[arg(short = 'o', long)]
+        output: PathBuf,
+        #[arg(long, default_value_t = 150)]
+        dpi: u16,
+    },
+
+    /// Create a looping animated GIF from 2+ images in pure Rust (zero FFmpeg)
+    MakeGif {
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        #[arg(short = 'o', long)]
+        output: PathBuf,
+        #[arg(long, default_value_t = 300)]
+        delay_ms: u32,
+        #[arg(long)]
+        max_width: Option<u32>,
+    },
+
+    /// Extract every frame of an animated GIF into numbered images in pure Rust
+    GifFrames {
+        input: PathBuf,
+        #[arg(short = 'o', long)]
+        output_dir: PathBuf,
+        #[arg(short = 't', long, default_value = "png")]
+        to: String,
     },
 
     /// Start the headless Wandel MCP (Model Context Protocol) server over stdio or local HTTP
@@ -1203,6 +1282,132 @@ fn run() {
                 std::process::exit(1);
             }
         },
+        Commands::PdfText { input, output } => {
+            if let Some(out) = output {
+                match wandel_core::export_pdf_text_file(&input, &out) {
+                    Ok((pages, bytes)) => println!(
+                        "Extracted text from {} page(s) -> {} ({:.1} KB)",
+                        pages,
+                        out.display(),
+                        bytes as f64 / 1024.0
+                    ),
+                    Err(e) => {
+                        eprintln!("PDF text extraction failed: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                match wandel_core::extract_pdf_text(&input) {
+                    Ok(pages) => {
+                        for (num, text) in pages {
+                            println!("--- Page {} ---\n{}\n", num, text);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("PDF text extraction failed: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
+        Commands::SocialKit {
+            input,
+            output_dir,
+            to,
+        } => {
+            let fmt = ImageFormat::from_extension(&to.to_ascii_lowercase())
+                .filter(|f| f.can_encode())
+                .unwrap_or(ImageFormat::Jpg);
+            match wandel_core::generate_social_kit(&input, &output_dir, fmt, ffmpeg.as_deref()) {
+                Ok(files) => println!(
+                    "Generated {} social media assets in {}",
+                    files.len(),
+                    output_dir.display()
+                ),
+                Err(e) => {
+                    eprintln!("Social kit generation failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::Poster { input, output, at } => {
+            let Some(ffmpeg_bin) = ffmpeg.as_deref() else {
+                eprintln!("FFmpeg not found in PATH");
+                std::process::exit(1);
+            };
+            match wandel_core::extract_video_poster(&input, &output, at, ffmpeg_bin) {
+                Ok(bytes) => println!(
+                    "Extracted video poster at {:.2}s -> {} ({:.1} KB)",
+                    at,
+                    output.display(),
+                    bytes as f64 / 1024.0
+                ),
+                Err(e) => {
+                    eprintln!("Poster extraction failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::PdfDark { input, output, dpi } => {
+            match wandel_core::convert_pdf_dark_mode(&input, &output, dpi) {
+                Ok(bytes) => println!(
+                    "Converted PDF to dark mode ({} DPI) -> {} ({:.1} KB)",
+                    dpi,
+                    output.display(),
+                    bytes as f64 / 1024.0
+                ),
+                Err(e) => {
+                    eprintln!("Dark-mode PDF conversion failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::MakeGif {
+            inputs,
+            output,
+            delay_ms,
+            max_width,
+        } => {
+            match wandel_core::create_animated_gif(
+                &inputs,
+                &output,
+                delay_ms,
+                max_width,
+                ffmpeg.as_deref(),
+            ) {
+                Ok(bytes) => println!(
+                    "Created animated GIF ({} frames, {}ms) -> {} ({:.1} KB)",
+                    inputs.len(),
+                    delay_ms,
+                    output.display(),
+                    bytes as f64 / 1024.0
+                ),
+                Err(e) => {
+                    eprintln!("Animated GIF creation failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::GifFrames {
+            input,
+            output_dir,
+            to,
+        } => {
+            let fmt = ImageFormat::from_extension(&to.to_ascii_lowercase())
+                .filter(|f| f.can_encode())
+                .unwrap_or(ImageFormat::Png);
+            match wandel_core::extract_gif_frames(&input, &output_dir, fmt) {
+                Ok(files) => println!(
+                    "Extracted {} GIF frame(s) -> {}",
+                    files.len(),
+                    output_dir.display()
+                ),
+                Err(e) => {
+                    eprintln!("GIF frame extraction failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
         Commands::Mcp {
             allowed_dirs,
             http,
@@ -1280,11 +1485,17 @@ fn run() {
             filter,
             remux,
             denoise_audio,
+            normalize_audio,
+            trim_silence,
             deinterlace,
             video_sharpen,
             gain_db,
             speed,
             auto_levels,
+            blur_regions,
+            remove_bg,
+            remove_bg_tolerance,
+            also,
         } => {
             let mut settings = match preset.as_deref() {
                 Some("web" | "web_optimized") => Preset::WebOptimized.to_settings(),
@@ -1332,6 +1543,35 @@ fn run() {
             settings.image.auto_trim_border = auto_trim;
             settings.image.auto_trim_tolerance = trim_tolerance.min(64);
             settings.image.auto_levels = auto_levels;
+            settings.image.remove_bg_color = remove_bg;
+            settings.image.remove_bg_tolerance = remove_bg_tolerance;
+            if let Some(also_str) = also {
+                for tok in also_str.split(',') {
+                    let clean = tok.trim().to_ascii_lowercase();
+                    if let Some(fmt) = ImageFormat::from_extension(&clean) {
+                        if fmt.can_encode() && !settings.image.extra_formats.contains(&fmt) {
+                            settings.image.extra_formats.push(fmt);
+                        }
+                    }
+                }
+            }
+            for spec in blur_regions {
+                let parts: Vec<f32> = spec
+                    .split(',')
+                    .filter_map(|s| s.trim().parse::<f32>().ok())
+                    .collect();
+                if parts.len() == 4 {
+                    settings.image.blur_regions.push(wandel_core::NormalizedCrop {
+                        x: parts[0],
+                        y: parts[1],
+                        width: parts[2],
+                        height: parts[3],
+                    });
+                } else {
+                    eprintln!("Invalid --blur-region '{}'. Expected x,y,w,h (0.0..=1.0).", spec);
+                    std::process::exit(1);
+                }
+            }
             if let Some(c) = crop {
                 settings.image.crop_aspect = match c.as_str() {
                     "1:1" | "square" => Some(AspectCrop::Square1x1),
@@ -1376,6 +1616,8 @@ fn run() {
             }
             settings.video.remux_only = remux;
             settings.video.denoise_audio = denoise_audio;
+            settings.video.normalize_loudness = normalize_audio;
+            settings.video.trim_silence = trim_silence;
             settings.video.deinterlace = deinterlace;
             settings.video.video_sharpen = video_sharpen;
             settings.video.audio_gain_db = gain_db;

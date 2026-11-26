@@ -160,6 +160,10 @@ export interface ImageSettings {
   backgroundHex: string | null;
   watermark: WatermarkSettings | null;
   textWatermark: TextWatermarkSettings | null;
+  blurRegions?: NormalizedCrop[];
+  removeBgColor?: string | null;
+  removeBgTolerance?: number;
+  extraFormats?: ImageFormat[];
 }
 
 export interface VideoSettings {
@@ -437,6 +441,10 @@ export const DEFAULT_SETTINGS: ConversionSettings = {
     backgroundHex: "#ffffff",
     watermark: null,
     textWatermark: null,
+    blurRegions: [],
+    removeBgColor: null,
+    removeBgTolerance: 24,
+    extraFormats: [],
   },
   video: {
     target: { kind: "video", format: "mp4_h264" },
