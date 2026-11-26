@@ -701,3 +701,103 @@ pub fn compute_target_dimensions(
 pub fn default_audio_target() -> AudioFormat {
     AudioFormat::Mp3
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn computes_target_dimensions_and_presets() {
+        assert_eq!(
+            compute_target_dimensions(0, 100, &ResizeMode::Percentage { percent: 50.0 }, true),
+            None
+        );
+        assert_eq!(
+            compute_target_dimensions(1000, 500, &ResizeMode::Original, true),
+            None
+        );
+        assert_eq!(
+            compute_target_dimensions(1000, 500, &ResizeMode::Percentage { percent: 50.0 }, true),
+            Some((500, 250))
+        );
+        assert_eq!(
+            compute_target_dimensions(
+                1000,
+                500,
+                &ResizeMode::MaxDimensions {
+                    width: Some(500),
+                    height: None
+                },
+                true
+            ),
+            Some((500, 250))
+        );
+        assert_eq!(
+            compute_target_dimensions(
+                1000,
+                500,
+                &ResizeMode::MaxDimensions {
+                    width: None,
+                    height: Some(250)
+                },
+                true
+            ),
+            Some((500, 250))
+        );
+        assert_eq!(
+            compute_target_dimensions(
+                1000,
+                500,
+                &ResizeMode::Exact {
+                    width: 400,
+                    height: 400,
+                    keep_aspect_ratio: true
+                },
+                true
+            ),
+            Some((400, 200))
+        );
+        assert_eq!(
+            compute_target_dimensions(
+                1000,
+                500,
+                &ResizeMode::Exact {
+                    width: 400,
+                    height: 400,
+                    keep_aspect_ratio: false
+                },
+                false
+            ),
+            Some((400, 400))
+        );
+
+        assert_eq!(AspectCrop::Square1x1.ratio(), (1, 1));
+        assert_eq!(AspectCrop::Landscape16x9.ratio(), (16, 9));
+        assert_eq!(AspectCrop::Portrait9x16.ratio(), (9, 16));
+        assert_eq!(AspectCrop::Standard4x3.ratio(), (4, 3));
+        assert_eq!(AspectCrop::Photo3x2.ratio(), (3, 2));
+
+        assert_eq!(VideoAspectReframe::None.target_dimensions(), None);
+        assert_eq!(
+            VideoAspectReframe::Portrait9x16.target_dimensions(),
+            Some((1080, 1920))
+        );
+        assert_eq!(
+            VideoAspectReframe::Portrait4x5.target_dimensions(),
+            Some((1080, 1350))
+        );
+        assert_eq!(
+            VideoAspectReframe::Square1x1.target_dimensions(),
+            Some((1080, 1080))
+        );
+        assert_eq!(
+            VideoAspectReframe::Landscape16x9.target_dimensions(),
+            Some((1920, 1080))
+        );
+
+        assert_eq!(Preset::WebOptimized.to_settings().image.format, ImageFormat::Webp);
+        assert_eq!(Preset::HighQuality.to_settings().image.format, ImageFormat::Png);
+        assert_eq!(Preset::SmallSize.to_settings().image.format, ImageFormat::Avif);
+        assert_eq!(default_audio_target(), AudioFormat::Mp3);
+    }
+}

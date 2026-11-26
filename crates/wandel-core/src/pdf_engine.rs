@@ -1166,3 +1166,21 @@ pub fn scrub_pdf_metadata(input: &Path, output: &Path) -> Result<u64> {
     let size = std::fs::metadata(output)?.len();
     Ok(size)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_page_ranges_and_ordered_specs() {
+        assert_eq!(parse_page_range("", 4), vec![0, 1, 2, 3]);
+        assert_eq!(parse_page_range("1-2,4", 5), vec![0, 1, 3]);
+        assert_eq!(parse_page_range("all", 3), vec![0, 1, 2]);
+        assert_eq!(parse_page_range("1", 0), Vec::<usize>::new());
+
+        assert_eq!(parse_ordered_page_spec("3,1-2", 4), vec![2, 0, 1]);
+        assert_eq!(parse_ordered_page_spec("3-1,2", 4), vec![2, 1, 0]);
+        assert_eq!(parse_ordered_page_spec("all", 2), vec![0, 1]);
+        assert_eq!(parse_ordered_page_spec("1", 0), Vec::<usize>::new());
+    }
+}

@@ -13,3 +13,7 @@ wandel-core = { path = "../wandel-core" }
 wandel-mcp = { path = "../wandel-mcp" }
 clap = { version = "4", features = ["derive"] }
 serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
+image = { version = "0.25", default-features = false, features = ["png"] }

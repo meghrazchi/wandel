@@ -252,3 +252,78 @@ fn mcp_pipeline_sandbox_and_dry_run() {
     );
     assert!(stamped_pdf.exists());
 }
+
+#[test]
+fn mcp_exhaustive_protocol_and_error_paths() {
+    let dir = tempdir().unwrap();
+    let img_a = dir.path().join("p1.png");
+    let img_b = dir.path().join("p2.png");
+    DynamicImage::ImageRgba8(ImageBuffer::from_pixel(64, 64, Rgba([50, 100, 200, 255])))
+        .save(&img_a)
+        .unwrap();
+    DynamicImage::ImageRgba8(ImageBuffer::from_pixel(64, 64, Rgba([200, 100, 50, 255])))
+        .save(&img_b)
+        .unwrap();
+
+    let cmp_out = dir.path().join("cmp.png");
+    let slice_dir = dir.path().join("slice");
+    let sprite_out = dir.path().join("sprites.png");
+
+    let lines = vec![
+        "not valid json".to_string(),
+        json!({"jsonrpc":"2.0","id":1,"method":"ping"}).to_string(),
+        json!({"jsonrpc":"2.0","id":2,"method":"resources/list"}).to_string(),
+        json!({"jsonrpc":"2.0","id":3,"method":"resources/read","params":{"uri":"wandel://unknown"}}).to_string(),
+        json!({"jsonrpc":"2.0","id":4,"method":"prompts/get","params":{"name":"optimize-for-web","arguments":{"path":"/tmp/x"}}}).to_string(),
+        json!({"jsonrpc":"2.0","id":5,"method":"prompts/get","params":{"name":"prepare-social-video","arguments":{"path":"/tmp/v.mp4"}}}).to_string(),
+        json!({"jsonrpc":"2.0","id":6,"method":"prompts/get","params":{"name":"clean-pdf-for-sharing","arguments":{"path":"/tmp/d.pdf"}}}).to_string(),
+        json!({"jsonrpc":"2.0","id":7,"method":"prompts/get","params":{"name":"missing-prompt","arguments":{}}}).to_string(),
+        json!({"jsonrpc":"2.0","id":8,"method":"unknown/method"}).to_string(),
+        json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":999}}).to_string(),
+        json!({"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"wandel_image_tools","arguments":{"action":"compare","inputs":[img_a.to_string_lossy(), img_b.to_string_lossy()],"output":cmp_out.to_string_lossy()}}}).to_string(),
+        json!({"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"wandel_image_tools","arguments":{"action":"slice","input":img_a.to_string_lossy(),"output":slice_dir.to_string_lossy(),"cols":2,"rows":2}}}).to_string(),
+        json!({"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"wandel_image_tools","arguments":{"action":"sprite_sheet","inputs":[img_a.to_string_lossy(), img_b.to_string_lossy()],"output":sprite_out.to_string_lossy()}}}).to_string(),
+        json!({"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"wandel_image_tools","arguments":{"action":"palette","input":img_a.to_string_lossy(),"count":3}}}).to_string(),
+        json!({"jsonrpc":"2.0","id":24,"method":"tools/call","params":{"name":"wandel_image_tools","arguments":{"action":"data_url","input":img_a.to_string_lossy(),"format":"webp"}}}).to_string(),
+        json!({"jsonrpc":"2.0","id":25,"method":"tools/call","params":{"name":"wandel_image_tools","arguments":{"action":"dedupe","inputs":[img_a.to_string_lossy(), img_b.to_string_lossy()]}}}).to_string(),
+        json!({"jsonrpc":"2.0","id":26,"method":"tools/call","params":{"name":"wandel_pipeline","arguments":{"steps":[{"tool":"wandel_pipeline","arguments":{}}]}}}).to_string(),
+    ];
+
+    let out_buf = Arc::new(Mutex::new(Vec::new()));
+    let server = McpServer::new(None, None);
+    server
+        .run_io(Cursor::new(lines.join("\n").into_bytes()), SharedBuf(Arc::clone(&out_buf)))
+        .unwrap();
+
+    let raw_out = String::from_utf8(out_buf.lock().unwrap().clone()).unwrap();
+    let messages: Vec<Value> = raw_out
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let by_id = |id: i64| -> Value {
+        messages
+            .iter()
+            .find(|m| m.get("id").and_then(|v| v.as_i64()) == Some(id))
+            .cloned()
+            .unwrap()
+    };
+
+    assert!(messages.iter().any(|m| m["error"]["code"] == -32700));
+    assert!(by_id(1)["result"].is_object());
+    assert_eq!(by_id(2)["result"]["resources"].as_array().unwrap().len(), 1);
+    assert_eq!(by_id(3)["error"]["code"], -32602);
+    assert!(by_id(4)["result"]["messages"].is_array());
+    assert!(by_id(5)["result"]["messages"].is_array());
+    assert!(by_id(6)["result"]["messages"].is_array());
+    assert_eq!(by_id(7)["error"]["code"], -32602);
+    assert_eq!(by_id(8)["error"]["code"], -32601);
+
+    assert_eq!(by_id(20)["result"]["isError"], false);
+    assert_eq!(by_id(21)["result"]["structuredContent"]["count"], 4);
+    assert_eq!(by_id(22)["result"]["structuredContent"]["count"], 2);
+    assert_eq!(by_id(23)["result"]["isError"], false);
+    assert_eq!(by_id(24)["result"]["isError"], false);
+    assert_eq!(by_id(25)["result"]["isError"], false);
+    assert_eq!(by_id(26)["result"]["isError"], true);
+}
