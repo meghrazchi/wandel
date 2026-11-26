@@ -550,6 +550,19 @@ fn apply_target_format(settings: &mut ConversionSettings, to: &str) -> Result<()
 }
 
 fn main() {
+    // Windows defaults to a 1 MB main-thread stack, which is too small for the
+    // debug-mode clap parser + 25-subcommand dispatch frame. Run on an 8 MB stack.
+    let handle = std::thread::Builder::new()
+        .name("wandel-main".into())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(run)
+        .expect("Failed to spawn main worker thread");
+    if let Err(err) = handle.join() {
+        std::panic::resume_unwind(err);
+    }
+}
+
+fn run() {
     let cli = Cli::parse();
     let ffmpeg = find_in_path("ffmpeg");
     let ffprobe = find_in_path("ffprobe");

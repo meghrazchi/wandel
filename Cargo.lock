@@ -6539,7 +6539,7 @@ dependencies = [
 
 [[package]]
 name = "wandel"
-version = "2.3.2"
+version = "2.3.3"
 dependencies = [
  "notify",
  "serde",
@@ -6555,7 +6555,7 @@ dependencies = [
 
 [[package]]
 name = "wandel-cli"
-version = "2.3.2"
+version = "2.3.3"
 dependencies = [
  "clap",
  "image",
@@ -6567,7 +6567,7 @@ dependencies = [
 
 [[package]]
 name = "wandel-core"
-version = "2.3.2"
+version = "2.3.3"
 dependencies = [
  "base64 0.22.1",
  "fast_image_resize",
@@ -6597,7 +6597,7 @@ dependencies = [
 
 [[package]]
 name = "wandel-mcp"
-version = "2.3.2"
+version = "2.3.3"
 dependencies = [
  "image",
  "serde",
