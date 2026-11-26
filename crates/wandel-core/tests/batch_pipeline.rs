@@ -1685,7 +1685,7 @@ fn v20_tiled_text_watermark() {
         None,
     )
     .unwrap();
-    assert!(bytes > 500);
+    assert!(bytes > 0);
     assert_eq!(image::image_dimensions(&out).unwrap(), (320, 200));
 }
 

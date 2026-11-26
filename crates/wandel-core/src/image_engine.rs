@@ -766,6 +766,22 @@ fn cached_fontdb() -> std::sync::Arc<resvg::usvg::fontdb::Database> {
     std::sync::Arc::clone(FONTDB.get_or_init(|| {
         let mut db = resvg::usvg::fontdb::Database::new();
         db.load_system_fonts();
+        // Ensure generic `sans-serif` resolves even on minimal Linux systems where
+        // fontconfig doesn't map DejaVu Sans by default.
+        let has_sans = db
+            .query(&resvg::usvg::fontdb::Query {
+                families: &[resvg::usvg::fontdb::Family::SansSerif],
+                ..Default::default()
+            })
+            .is_some();
+        if !has_sans {
+            let fallback = db
+                .faces()
+                .find_map(|f| f.families.first().map(|(name, _)| name.clone()));
+            if let Some(family) = fallback {
+                db.set_sans_serif_family(family);
+            }
+        }
         std::sync::Arc::new(db)
     }))
 }

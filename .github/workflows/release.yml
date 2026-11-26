@@ -28,6 +28,7 @@ jobs:
             librsvg2-dev \
             patchelf \
             nasm \
+            fonts-dejavu-core \
             ffmpeg
 
       - uses: actions/setup-node@v4
