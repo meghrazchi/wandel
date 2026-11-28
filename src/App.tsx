@@ -510,6 +510,33 @@ export default function App() {
     [items, settings.image]
   );
 
+  const handleDeblankPdf = useCallback(async (item: QueueItem) => {
+    const dest = await save({
+      title: "Save PDF Without Blank Pages",
+      defaultPath: item.fileName.replace(/\.pdf$/i, "_deblank.pdf"),
+      filters: [{ name: "PDF Document", extensions: ["pdf"] }],
+    });
+    if (!dest) return;
+
+    setBatchSummary("Scanning and removing blank PDF pages...");
+    try {
+      const [kept, removed, bytes] = await invoke<[number, number, number]>(
+        "remove_blank_pdf_pages",
+        {
+          path: item.path,
+          outputPath: dest,
+          whiteThreshold: 0.995,
+        }
+      );
+      setBatchSummary(
+        `Removed ${removed} blank page(s), kept ${kept} (${(bytes / 1024).toFixed(0)} KB)`
+      );
+      await revealItemInDir(dest);
+    } catch (err) {
+      setBatchSummary(`Remove blank pages failed: ${String(err)}`);
+    }
+  }, []);
+
   const handleEditPdfMeta = useCallback(async (item: QueueItem) => {
     const title = window.prompt("PDF Title (leave blank to skip):", "");
     if (title === null) return;
@@ -958,6 +985,76 @@ export default function App() {
       setBatchSummary(`PDF stamp failed: ${String(err)}`);
     }
   }, []);
+
+  const handlePixelDiff = useCallback(async () => {
+    const imagePaths = items
+      .filter((i) => i.mediaKind === "image")
+      .map((i) => i.path);
+    if (imagePaths.length < 2) return;
+
+    const dest = await save({
+      title: "Save Visual Pixel Diff PNG",
+      defaultPath: "wandel_diff.png",
+      filters: [{ name: "PNG Image", extensions: ["png"] }],
+    });
+    if (!dest) return;
+
+    setBatchSummary("Computing visual pixel diff...");
+    try {
+      const res = await invoke<{
+        outputPath: string;
+        width: number;
+        height: number;
+        changedPixels: number;
+        totalPixels: number;
+        diffPercent: number;
+      }>("create_pixel_diff", {
+        firstPath: imagePaths[0],
+        secondPath: imagePaths[1],
+        outputPath: dest,
+        threshold: 10,
+      });
+      setBatchSummary(
+        `Pixel diff: ${res.changedPixels.toLocaleString()} px changed (${res.diffPercent.toFixed(2)}%)`
+      );
+      await revealItemInDir(dest);
+    } catch (err) {
+      setBatchSummary(`Pixel diff failed: ${String(err)}`);
+    }
+  }, [items]);
+
+  const handleInterleavePdfs = useCallback(async () => {
+    const pdfPaths = items
+      .filter((i) => i.mediaKind === "pdf")
+      .map((i) => i.path);
+    if (pdfPaths.length < 2) return;
+
+    const reverseEven = window.confirm(
+      "Reverse the even pages PDF? Click OK for standard single-sided duplex scans, or Cancel to keep even pages in forward order."
+    );
+    const dest = await save({
+      title: "Save Interleaved Duplex PDF",
+      defaultPath: "wandel_interleaved.pdf",
+      filters: [{ name: "PDF Document", extensions: ["pdf"] }],
+    });
+    if (!dest) return;
+
+    setBatchSummary("Interleaving odd and even PDFs...");
+    try {
+      const [pages, bytes] = await invoke<[number, number]>("interleave_pdfs", {
+        oddPath: pdfPaths[0],
+        evenPath: pdfPaths[1],
+        reverseEven,
+        outputPath: dest,
+      });
+      setBatchSummary(
+        `Interleaved ${pages} page(s) (${(bytes / 1024).toFixed(0)} KB)`
+      );
+      await revealItemInDir(dest);
+    } catch (err) {
+      setBatchSummary(`PDF interleave failed: ${String(err)}`);
+    }
+  }, [items]);
 
   const handleCompareImages = useCallback(async () => {
     const imagePaths = items
@@ -2223,12 +2320,14 @@ export default function App() {
               onMergePdf={handleMergePdf}
               onCreateGrid={handleCreateGrid}
               onCompareImages={handleCompareImages}
+              onPixelDiff={handlePixelDiff}
               onCreateSlideshow={handleCreateSlideshow}
               onCreateAnimatedGif={handleCreateAnimatedGif}
               onStitchImages={handleStitchImages}
               onCreateSpriteSheet={handleCreateSpriteSheet}
               onMergeVideos={handleMergeVideos}
               onMergePdfs={handleMergePdfs}
+              onInterleavePdfs={handleInterleavePdfs}
               onSplitPdf={handleSplitPdf}
               onCompressPdf={handleCompressPdf}
               onRotatePdf={handleRotatePdf}
@@ -2241,6 +2340,7 @@ export default function App() {
               onExportPdfMarkdown={handleExportPdfMarkdown}
               onTwoUpPdf={handleTwoUpPdf}
               onEditPdfMeta={handleEditPdfMeta}
+              onDeblankPdf={handleDeblankPdf}
               onDarkModePdf={handleDarkModePdf}
               onScrubPdf={handleScrubPdf}
               onPaletteItem={setPaletteItem}

@@ -12,6 +12,61 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 #[cfg(desktop)]
 use tauri::{Manager, WindowEvent};
 
+/// Headless safety guard: if the desktop binary is invoked with `mcp` as its first argument,
+/// run the pure-Rust MCP server over stdio or HTTP and return `true` before Tauri initializes
+/// any GUI window, WebView, or system tray.
+pub fn try_run_headless_mcp() -> bool {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(|s| s.as_str()) != Some("mcp") {
+        return false;
+    }
+
+    let mut allowed_dirs: Vec<std::path::PathBuf> = Vec::new();
+    let mut http_addr: Option<String> = None;
+    let mut token: Option<String> = None;
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--allowed-dir" if i + 1 < args.len() => {
+                allowed_dirs.push(std::path::PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--http" if i + 1 < args.len() => {
+                http_addr = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--token" if i + 1 < args.len() => {
+                token = Some(args[i + 1].clone());
+                i += 2;
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+
+    let ffmpeg_path = resolve_sidecar_binary("ffmpeg");
+    let ffprobe_path = resolve_sidecar_binary("ffprobe");
+    let server = std::sync::Arc::new(wandel_mcp::McpServer::with_allowed_dirs(
+        ffmpeg_path,
+        ffprobe_path,
+        allowed_dirs,
+    ));
+
+    let res = if let Some(addr) = http_addr {
+        wandel_mcp::serve_http(server, &addr, token)
+    } else {
+        server.run_stdio()
+    };
+
+    if let Err(e) = res {
+        eprintln!("Wandel MCP server error: {}", e);
+        std::process::exit(1);
+    }
+    true
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let ffmpeg_path = resolve_sidecar_binary("ffmpeg");
@@ -134,6 +189,9 @@ pub fn run() {
             commands::convert_pdf_two_up,
             commands::stitch_images,
             commands::set_pdf_metadata,
+            commands::remove_blank_pdf_pages,
+            commands::create_pixel_diff,
+            commands::interleave_pdfs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Wandel");

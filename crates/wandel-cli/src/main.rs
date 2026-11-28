@@ -202,6 +202,86 @@ enum Commands {
         /// Optional bottom caption bar text rendered below images
         #[arg(long)]
         caption: Option<String>,
+
+        /// Duotone color grading pair as dark_hex,light_hex (e.g. #1e1b4b,#c084fc)
+        #[arg(long)]
+        duotone: Option<String>,
+
+        /// Convert images to grayscale
+        #[arg(long)]
+        grayscale: bool,
+
+        /// Apply unsharp mask to images
+        #[arg(long)]
+        sharpen: bool,
+
+        /// Gaussian blur sigma for images (0.0..=20.0)
+        #[arg(long, default_value_t = 0.0)]
+        blur: f32,
+
+        /// Pixelate / mosaic block size in px (0 = off, 2..=32)
+        #[arg(long, default_value_t = 0)]
+        pixelate: u32,
+
+        /// Radial vignette strength (0.0..=1.0)
+        #[arg(long, default_value_t = 0.0)]
+        vignette: f32,
+
+        /// Image brightness adjustment (-100..=100)
+        #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+        brightness: i32,
+
+        /// Image contrast adjustment (-100.0..=100.0)
+        #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
+        contrast: f32,
+
+        /// Image saturation adjustment (-100.0..=100.0)
+        #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
+        saturation: f32,
+
+        /// Rounded corner radius as % of min(width, height) (0..=50)
+        #[arg(long, default_value_t = 0.0)]
+        corner_radius: f32,
+
+        /// Fill hex color for transparent pixels on JPG/BMP (default #ffffff)
+        #[arg(long)]
+        bg_hex: Option<String>,
+
+        /// Rasterization DPI when converting PDFs to images (72..=300)
+        #[arg(long, default_value_t = 150)]
+        pdf_dpi: u16,
+
+        /// 1-based page range when converting PDFs to images (e.g. "1-3,5")
+        #[arg(long, default_value = "")]
+        pdf_pages: String,
+
+        /// Audio bitrate in kbps (32..=512, default 192)
+        #[arg(long, default_value_t = 192)]
+        audio_bitrate: u16,
+
+        /// Optional audio sample rate in Hz (e.g. 44100, 48000)
+        #[arg(long)]
+        sample_rate: Option<u32>,
+
+        /// Downmix audio to mono
+        #[arg(long)]
+        mono: bool,
+
+        /// Optional .srt / .vtt subtitle file to burn into video
+        #[arg(long)]
+        subtitle: Option<PathBuf>,
+
+        /// Audio fade-in duration in seconds
+        #[arg(long)]
+        fade_in: Option<f32>,
+
+        /// Audio fade-out duration in seconds
+        #[arg(long)]
+        fade_out: Option<f32>,
+
+        /// Optional filename template (e.g. "{name}_{width}x{height}")
+        #[arg(long, default_value = "")]
+        naming_template: String,
     },
 
     /// Display detected CPU cores, FFmpeg status, and GPU hardware encoders
@@ -618,6 +698,48 @@ enum Commands {
         width: u32,
     },
 
+    /// Losslessly detect and remove blank (near-white) pages from a PDF
+    PdfDeblank {
+        input: PathBuf,
+        #[arg(short = 'o', long)]
+        output: PathBuf,
+        #[arg(long, default_value_t = 0.995)]
+        threshold: f32,
+    },
+
+    /// Compute a visual pixel diff highlight PNG between two images
+    Diff {
+        first: PathBuf,
+        second: PathBuf,
+        #[arg(short = 'o', long)]
+        output: PathBuf,
+        /// Per-channel delta tolerance (0-255, default 10)
+        #[arg(long, default_value_t = 10)]
+        threshold: u8,
+    },
+
+    /// Search text across one or more PDF files offline
+    PdfGrep {
+        /// Substring query to search for
+        query: String,
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// Match exact letter case
+        #[arg(long)]
+        case_sensitive: bool,
+    },
+
+    /// Losslessly interleave two PDFs (odd and even pages from a duplex scan)
+    PdfInterleave {
+        odd: PathBuf,
+        even: PathBuf,
+        #[arg(short = 'o', long)]
+        output: PathBuf,
+        /// Reverse the even PDF page order (standard single-sided ADF duplex scan)
+        #[arg(long)]
+        reverse_even: bool,
+    },
+
     /// Start the headless Wandel MCP (Model Context Protocol) server over stdio or local HTTP
     Mcp {
         /// Optional sandbox root directory (repeatable; restricts all MCP file access)
@@ -642,13 +764,45 @@ enum Commands {
 
 fn find_in_path(name: &str) -> Option<PathBuf> {
     let exe_ext = if cfg!(windows) { ".exe" } else { "" };
-    let path_var = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path_var) {
-        let candidate = dir.join(format!("{}{}", name, exe_ext));
+
+    // 1. Sibling binary next to `wandel` (e.g. bundled sidecars or custom install dir)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let direct = dir.join(format!("{}{}", name, exe_ext));
+            if direct.is_file() {
+                return Some(direct);
+            }
+        }
+    }
+
+    // 2. macOS Wandel.app bundled FFmpeg/FFprobe sidecars (works under Claude Desktop minimal PATH)
+    #[cfg(target_os = "macos")]
+    {
+        let app_bin = PathBuf::from("/Applications/Wandel.app/Contents/MacOS").join(name);
+        if app_bin.is_file() {
+            return Some(app_bin);
+        }
+    }
+
+    // 3. Standard PATH lookup
+    if let Some(path_var) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            let candidate = dir.join(format!("{}{}", name, exe_ext));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    // 4. Common Homebrew / system paths (Claude Desktop on macOS omits /opt/homebrew/bin from PATH)
+    #[cfg(unix)]
+    for dir in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"] {
+        let candidate = PathBuf::from(dir).join(name);
         if candidate.is_file() {
             return Some(candidate);
         }
     }
+
     None
 }
 
@@ -1595,6 +1749,95 @@ fn run() {
                 }
             }
         }
+        Commands::PdfDeblank {
+            input,
+            output,
+            threshold,
+        } => match wandel_core::remove_blank_pdf_pages(&input, &output, threshold) {
+            Ok((kept, removed, bytes)) => println!(
+                "Removed {} blank page(s), kept {} -> {} ({:.1} KB)",
+                removed,
+                kept,
+                output.display(),
+                bytes as f64 / 1024.0
+            ),
+            Err(e) => {
+                eprintln!("PDF deblank failed: {}", e);
+                std::process::exit(1);
+            }
+        },
+        Commands::Diff {
+            first,
+            second,
+            output,
+            threshold,
+        } => match wandel_core::create_pixel_diff(
+            &first,
+            &second,
+            &output,
+            threshold,
+            ffmpeg.as_deref(),
+        ) {
+            Ok(res) => println!(
+                "Pixel diff ({}x{}): {} / {} pixels changed ({:.2}%) -> {}",
+                res.width,
+                res.height,
+                res.changed_pixels,
+                res.total_pixels,
+                res.diff_percent,
+                res.output_path
+            ),
+            Err(e) => {
+                eprintln!("Pixel diff failed: {}", e);
+                std::process::exit(1);
+            }
+        },
+        Commands::PdfGrep {
+            query,
+            inputs,
+            case_sensitive,
+        } => {
+            let mut total_matches = 0usize;
+            for path in &inputs {
+                match wandel_core::search_pdf_text(path, &query, case_sensitive) {
+                    Ok(matches) => {
+                        for m in matches {
+                            total_matches += m.occurrences;
+                            println!(
+                                "{}:p{} ({}x): {}",
+                                path.display(),
+                                m.page,
+                                m.occurrences,
+                                m.snippet
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("PDF search failed on {}: {}", path.display(), e);
+                    }
+                }
+            }
+            if total_matches == 0 {
+                println!("No matches found for '{}'.", query);
+            }
+        }
+        Commands::PdfInterleave {
+            odd,
+            even,
+            output,
+            reverse_even,
+        } => match wandel_core::interleave_pdfs(&odd, &even, reverse_even, &output) {
+            Ok((pages, bytes)) => println!(
+                "Interleaved {} page(s) -> {} ({:.1} KB)",
+                pages,
+                output.display(),
+                bytes as f64 / 1024.0
+            ),
+            Err(e) => {
+                eprintln!("PDF interleave failed: {}", e);
+                std::process::exit(1);
+            }
+        },
         Commands::Mcp {
             allowed_dirs,
             http,
@@ -1684,6 +1927,26 @@ fn run() {
             remove_bg_tolerance,
             also,
             caption,
+            duotone,
+            grayscale,
+            sharpen,
+            blur,
+            pixelate,
+            vignette,
+            brightness,
+            contrast,
+            saturation,
+            corner_radius,
+            bg_hex,
+            pdf_dpi,
+            pdf_pages,
+            audio_bitrate,
+            sample_rate,
+            mono,
+            subtitle,
+            fade_in,
+            fade_out,
+            naming_template,
         } => {
             let mut settings = match preset.as_deref() {
                 Some("web" | "web_optimized") => Preset::WebOptimized.to_settings(),
@@ -1734,6 +1997,34 @@ fn run() {
             settings.image.remove_bg_color = remove_bg;
             settings.image.remove_bg_tolerance = remove_bg_tolerance;
             settings.image.caption_text = caption;
+            settings.image.grayscale = grayscale;
+            settings.image.sharpen = sharpen;
+            settings.image.blur_sigma = blur.clamp(0.0, 20.0);
+            settings.image.pixelate_block = pixelate.min(32);
+            settings.image.vignette_strength = vignette.clamp(0.0, 1.0);
+            settings.image.brightness = brightness.clamp(-100, 100);
+            settings.image.contrast = contrast.clamp(-100.0, 100.0);
+            settings.image.saturation = saturation.clamp(-100.0, 100.0);
+            settings.image.corner_radius_percent = corner_radius.clamp(0.0, 50.0);
+            if let Some(bg) = bg_hex {
+                settings.image.background_hex = Some(bg);
+            }
+            settings.pdf.dpi = pdf_dpi.clamp(72, 300);
+            settings.pdf.page_range = pdf_pages;
+            settings.video.audio_bitrate_kbps = audio_bitrate.clamp(32, 512);
+            settings.video.sample_rate_hz = sample_rate;
+            settings.video.mono = mono;
+            settings.video.subtitle_path = subtitle;
+            settings.video.fade_in_secs = fade_in;
+            settings.video.fade_out_secs = fade_out;
+            if let Some(duo) = duotone {
+                if let Some((dark, light)) = duo.split_once(',') {
+                    settings.image.duotone = Some((dark.trim().to_string(), light.trim().to_string()));
+                } else {
+                    eprintln!("Invalid --duotone '{}'. Expected #dark,#light", duo);
+                    std::process::exit(1);
+                }
+            }
             if let Some(also_str) = also {
                 for tok in also_str.split(',') {
                     let clean = tok.trim().to_ascii_lowercase();
@@ -1822,6 +2113,7 @@ fn run() {
             settings.output = OutputSettings {
                 output_dir: output,
                 suffix,
+                rename_template: naming_template,
                 overwrite,
                 trash_originals,
                 ..Default::default()

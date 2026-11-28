@@ -715,6 +715,9 @@ pub fn apply_post_decode_pipeline(
     if settings.filter_preset != ImageFilterPreset::None {
         processed = apply_filter_preset(processed, settings.filter_preset);
     }
+    if let Some((ref dark_hex, ref light_hex)) = settings.duotone {
+        processed = apply_duotone(processed, dark_hex, light_hex);
+    }
     if settings.pixelate_block >= 2 {
         processed = apply_pixelate(processed, settings.pixelate_block.clamp(2, 64));
     }
@@ -850,6 +853,33 @@ fn cached_fontdb() -> std::sync::Arc<resvg::usvg::fontdb::Database> {
         }
         std::sync::Arc::new(db)
     }))
+}
+
+fn apply_duotone(img: DynamicImage, dark_hex: &str, light_hex: &str) -> DynamicImage {
+    use rayon::prelude::*;
+
+    let d = parse_hex_rgb(dark_hex);
+    let l = parse_hex_rgb(light_hex);
+    let mut rgba = img.into_rgba8();
+
+    rgba.as_mut().par_chunks_exact_mut(4).for_each(|px| {
+        let lum = (0.2126 * f32::from(px[0])
+            + 0.7152 * f32::from(px[1])
+            + 0.0722 * f32::from(px[2]))
+            / 255.0;
+        let t = lum.clamp(0.0, 1.0);
+        px[0] = (f32::from(d[0]) + (f32::from(l[0]) - f32::from(d[0])) * t)
+            .round()
+            .clamp(0.0, 255.0) as u8;
+        px[1] = (f32::from(d[1]) + (f32::from(l[1]) - f32::from(d[1])) * t)
+            .round()
+            .clamp(0.0, 255.0) as u8;
+        px[2] = (f32::from(d[2]) + (f32::from(l[2]) - f32::from(d[2])) * t)
+            .round()
+            .clamp(0.0, 255.0) as u8;
+    });
+
+    DynamicImage::ImageRgba8(rgba)
 }
 
 fn apply_remove_background(img: DynamicImage, spec: &str, tolerance: u8) -> DynamicImage {
@@ -2859,6 +2889,117 @@ pub fn generate_lqip(
         ..Default::default()
     };
     export_image_data_url(input, &settings, ffmpeg_path)
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PixelDiffResult {
+    pub output_path: String,
+    pub width: u32,
+    pub height: u32,
+    pub total_pixels: u64,
+    pub changed_pixels: u64,
+    pub diff_percent: f64,
+}
+
+/// Compares two images pixel-by-pixel in parallel via `rayon`, highlights changed pixels in
+/// vivid magenta over a dimmed grayscale base, and writes a PNG diff report image.
+pub fn create_pixel_diff(
+    first: &Path,
+    second: &Path,
+    output: &Path,
+    threshold: u8,
+    ffmpeg_path: Option<&Path>,
+) -> Result<PixelDiffResult> {
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    let img_a = decode_image(first, &ResizeMode::Original, false, ffmpeg_path)?;
+    let img_b_raw = decode_image(second, &ResizeMode::Original, false, ffmpeg_path)?;
+
+    let (w, h) = (img_a.width().max(1), img_a.height().max(1));
+    let img_b = if img_b_raw.width() == w && img_b_raw.height() == h {
+        img_b_raw
+    } else {
+        resize_image(
+            img_b_raw,
+            &ResizeMode::Exact {
+                width: w,
+                height: h,
+                keep_aspect_ratio: false,
+            },
+            false,
+        )?
+    };
+
+    let rgba_a = img_a.into_rgba8();
+    let rgba_b = img_b.into_rgba8();
+    let raw_a = rgba_a.as_raw();
+    let raw_b = rgba_b.as_raw();
+    let mut out_raw = vec![0u8; raw_a.len()];
+    let changed = AtomicU64::new(0);
+    let thresh = i32::from(threshold);
+
+    out_raw
+        .par_chunks_exact_mut(4)
+        .enumerate()
+        .for_each(|(idx, dst)| {
+            let off = idx * 4;
+            let dr = (i32::from(raw_a[off]) - i32::from(raw_b[off])).abs();
+            let dg = (i32::from(raw_a[off + 1]) - i32::from(raw_b[off + 1])).abs();
+            let db = (i32::from(raw_a[off + 2]) - i32::from(raw_b[off + 2])).abs();
+            let da = (i32::from(raw_a[off + 3]) - i32::from(raw_b[off + 3])).abs();
+            if dr > thresh || dg > thresh || db > thresh || da > thresh {
+                changed.fetch_add(1, Ordering::Relaxed);
+                dst[0] = 244;
+                dst[1] = 63;
+                dst[2] = 148;
+                dst[3] = 255;
+            } else {
+                let lum = ((u32::from(raw_a[off]) * 30
+                    + u32::from(raw_a[off + 1]) * 59
+                    + u32::from(raw_a[off + 2]) * 11)
+                    / 100) as u8;
+                let dimmed = (u16::from(lum) * 45 / 100) as u8;
+                dst[0] = dimmed;
+                dst[1] = dimmed;
+                dst[2] = dimmed;
+                dst[3] = 255;
+            }
+        });
+
+    let diff_img = image::RgbaImage::from_raw(w, h, out_raw)
+        .ok_or_else(|| WandelError::ImageEncode("Failed to construct diff RGBA image".into()))?;
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let enc_settings = ImageSettings {
+        format: ImageFormat::Png,
+        ..Default::default()
+    };
+    encode_image_with_target(
+        &DynamicImage::ImageRgba8(diff_img),
+        &enc_settings,
+        output,
+        ffmpeg_path,
+    )?;
+
+    let total_pixels = u64::from(w) * u64::from(h);
+    let changed_pixels = changed.load(Ordering::Relaxed);
+    let diff_percent = if total_pixels > 0 {
+        (changed_pixels as f64 / total_pixels as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    Ok(PixelDiffResult {
+        output_path: output.to_string_lossy().into_owned(),
+        width: w,
+        height: h,
+        total_pixels,
+        changed_pixels,
+        diff_percent,
+    })
 }
 
 #[cfg(test)]

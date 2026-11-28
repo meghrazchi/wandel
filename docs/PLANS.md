@@ -31,6 +31,9 @@ This document tracks Wandel's completed milestones from `v1.0.0` through `v2.2.0
 | **v3.0 (`v30`)** | Single-Decode Multi-Format Fan-Out Export (`--also avif,jpg` / MCP `alsoFormats` / UI **Also Export As** pills), History CSV export in `HistoryDrawer`, and v3.0.0 milestone docs & package manager polish. |
 | **v3.1 (`v31`)** | Pure-Rust PDF → Markdown Converter with YAML frontmatter (`wandel pdf-md` / MCP `extract_markdown` / UI), Parallel 2-Up Side-by-Side PDF Imposition (`wandel pdf-2up` / MCP `two_up` / UI), and Image Caption Footer Bar (`--caption` / MCP `caption` / UI). |
 | **v3.2 (`v32`)** | Full-Resolution Vertical & Horizontal Image Stitcher (`wandel stitch` / MCP `stitch` / UI), Lossless PDF Metadata Editor (`wandel pdf-meta` / MCP `set_metadata` / UI), and Web LQIP Tiny Placeholder Generator (`wandel lqip` / MCP `lqip`). |
+| **v3.3 (`v33`)** | Unified Wandel indigo palette for Technical Stack & Capabilities badges/pills, Pure-Rust Lossless Blank PDF Page Remover (`wandel pdf-deblank` / MCP `remove_blank_pages` / UI), and Parallel Image Duotone Grading (`--duotone` / MCP `duotone` / UI). |
+| **v3.4 (`v34`)** | Visual Pixel Diff Highlighter (`wandel diff` / MCP `diff` / UI), Offline PDF Text Search (`wandel pdf-grep` / MCP `search`), and Lossless Duplex PDF Interleaver (`wandel pdf-interleave` / MCP `interleave` / UI). |
+| **v3.5 (`v35`)** | Headless CLI-first MCP architecture (never opens Desktop UI, early `mcp` safety guard in `wandel-desktop`, auto-discovery of bundled/Homebrew FFmpeg/FFprobe under Claude Desktop's minimal PATH, and absolute CLI path detection in `McpModal`) plus 100% Rust engine & UI option parity across `wandel-mcp` and `wandel-cli`. |
 
 ---
 

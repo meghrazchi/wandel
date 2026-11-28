@@ -17,6 +17,7 @@ interface McpStatus {
   protocolVersion: string;
   maxConcurrentRpcs: number;
   cliCommand: string;
+  cliInstalled?: boolean;
   capabilities?: {
     hardware?: {
       cpuCores: number;
@@ -157,10 +158,10 @@ export function McpModal({ onClose }: McpModalProps) {
             </div>
             <div>
               <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                Wandel MCP Server (Headless &amp; UI)
+                Wandel MCP Server (Headless CLI)
               </h2>
               <p className="text-[11px] text-zinc-500">
-                Model Context Protocol · Parallel stdio tool execution for AI agents
+                Model Context Protocol · Connects directly to the CLI and never opens the UI
               </p>
             </div>
           </div>
@@ -185,14 +186,14 @@ export function McpModal({ onClose }: McpModalProps) {
 
         {/* Body */}
         <div className="flex-1 space-y-4 overflow-y-auto p-5 text-xs">
-          {/* Health Badges */}
+          {/* Health Badges (unified Wandel indigo palette) */}
           {status && (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+              <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/15 px-2.5 py-1 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">
                 <Check className="h-3 w-3" />
                 Ready · {status.serverName} v{status.serverVersion}
               </span>
-              <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
+              <span className="rounded-full bg-indigo-500/10 px-2.5 py-1 text-[11px] font-medium text-indigo-600 dark:text-indigo-400">
                 MCP {status.protocolVersion}
               </span>
               <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/10 px-2.5 py-1 text-[11px] font-medium text-indigo-600 dark:text-indigo-400">
@@ -200,9 +201,31 @@ export function McpModal({ onClose }: McpModalProps) {
                 Up to {status.maxConcurrentRpcs} concurrent RPCs
               </span>
               {status.capabilities?.hardware?.gpuBackendName && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/10 px-2.5 py-1 text-[11px] font-medium text-indigo-600 dark:text-indigo-400">
                   <Zap className="h-3 w-3" />
                   {status.capabilities.hardware.gpuBackendName}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Headless CLI Detection Notice */}
+          {status && (
+            <div className="rounded-xl border border-indigo-500/25 bg-indigo-500/5 px-3 py-2 text-[11px] text-zinc-700 dark:text-zinc-300">
+              {status.cliInstalled ? (
+                <span>
+                  Headless CLI detected at{" "}
+                  <code className="font-mono font-semibold text-indigo-600 dark:text-indigo-400">
+                    {status.cliCommand}
+                  </code>
+                  . Claude Desktop and other MCP clients run this CLI directly without opening the Wandel app window.
+                </span>
+              ) : (
+                <span>
+                  Install the standalone headless <code className="font-mono font-semibold">wandel</code> CLI so Claude Desktop connects without opening the UI:{" "}
+                  <code className="font-mono text-indigo-600 dark:text-indigo-400">
+                    curl -fsSL https://raw.githubusercontent.com/meghrazchi/wandel/main/packaging/install.sh | bash
+                  </code>
                 </span>
               )}
             </div>

@@ -405,3 +405,154 @@ fn mcp_http_transport_and_auth() {
     shutdown.store(true, Ordering::Relaxed);
     handle.join().unwrap();
 }
+
+#[test]
+fn v35_mcp_full_engine_parity_and_schema() {
+    let dir = tempdir().unwrap();
+    let img_a = dir.path().join("a.png");
+    let img_b = dir.path().join("b.png");
+    image::DynamicImage::ImageRgba8(image::ImageBuffer::from_pixel(
+        32,
+        32,
+        image::Rgba([60, 120, 200, 255]),
+    ))
+    .save(&img_a)
+    .unwrap();
+    image::DynamicImage::ImageRgba8(image::ImageBuffer::from_pixel(
+        32,
+        32,
+        image::Rgba([200, 80, 60, 255]),
+    ))
+    .save(&img_b)
+    .unwrap();
+
+    let out_dir = dir.path().join("out");
+    std::fs::create_dir_all(&out_dir).unwrap();
+    let pdf_path = dir.path().join("doc.pdf");
+    let org_pdf = dir.path().join("org.pdf");
+    let meta_pdf = dir.path().join("meta.pdf");
+    let diff_png = dir.path().join("diff.png");
+
+    let reqs = vec![
+        json!({"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}),
+        json!({
+            "jsonrpc":"2.0","id":2,"method":"tools/call",
+            "params":{
+                "name":"wandel_convert",
+                "arguments":{
+                    "inputs":[img_a.to_string_lossy()],
+                    "to":"png",
+                    "outputDir": out_dir.to_string_lossy(),
+                    "grayscale": true,
+                    "blurSigma": 1.2,
+                    "brightness": 8,
+                    "cornerRadiusPercent": 15,
+                    "namingTemplate": "{name}_styled"
+                }
+            }
+        }),
+        json!({
+            "jsonrpc":"2.0","id":3,"method":"tools/call",
+            "params":{
+                "name":"wandel_pdf_ops",
+                "arguments":{
+                    "action":"merge_images",
+                    "inputs":[img_a.to_string_lossy(), img_b.to_string_lossy()],
+                    "output": pdf_path.to_string_lossy()
+                }
+            }
+        }),
+        json!({
+            "jsonrpc":"2.0","id":4,"method":"tools/call",
+            "params":{
+                "name":"wandel_pdf_ops",
+                "arguments":{
+                    "action":"organize",
+                    "input": pdf_path.to_string_lossy(),
+                    "output": org_pdf.to_string_lossy(),
+                    "plan":[{"sourcePage":2,"rotate":90},{"sourcePage":1,"rotate":0}]
+                }
+            }
+        }),
+        json!({
+            "jsonrpc":"2.0","id":5,"method":"tools/call",
+            "params":{
+                "name":"wandel_pdf_ops",
+                "arguments":{
+                    "action":"set_metadata",
+                    "input": org_pdf.to_string_lossy(),
+                    "output": meta_pdf.to_string_lossy(),
+                    "title":"Wandel v35",
+                    "author":"CLI"
+                }
+            }
+        }),
+        json!({
+            "jsonrpc":"2.0","id":6,"method":"tools/call",
+            "params":{
+                "name":"wandel_image_tools",
+                "arguments":{
+                    "action":"diff",
+                    "inputs":[img_a.to_string_lossy(), img_b.to_string_lossy()],
+                    "output": diff_png.to_string_lossy(),
+                    "threshold": 10
+                }
+            }
+        }),
+    ];
+
+    let server = McpServer::new(None, None);
+    let mut responses = Vec::with_capacity(reqs.len());
+    for req in reqs {
+        let out_buf = Arc::new(Mutex::new(Vec::new()));
+        let line = serde_json::to_string(&req).unwrap();
+        server
+            .run_io(Cursor::new(line.into_bytes()), SharedBuf(Arc::clone(&out_buf)))
+            .unwrap();
+        let raw_out = String::from_utf8(out_buf.lock().unwrap().clone()).unwrap();
+        let resp: Value = serde_json::from_str(raw_out.trim()).unwrap();
+        responses.push(resp);
+    }
+    assert_eq!(responses.len(), 6);
+
+    // 1. Verify schema declarations
+    let tools = responses[0]["result"]["tools"].as_array().unwrap();
+    let convert_props = &tools
+        .iter()
+        .find(|t| t["name"] == "wandel_convert")
+        .unwrap()["inputSchema"]["properties"];
+    for key in [
+        "blurSigma",
+        "brightness",
+        "grayscale",
+        "cornerRadiusPercent",
+        "pdfDpi",
+        "audioBitrateKbps",
+        "namingTemplate",
+    ] {
+        assert!(convert_props.get(key).is_some(), "Missing wandel_convert schema key: {}", key);
+    }
+
+    let pdf_props = &tools
+        .iter()
+        .find(|t| t["name"] == "wandel_pdf_ops")
+        .unwrap()["inputSchema"]["properties"];
+    for key in ["plan", "title", "author", "subject", "keywords", "threshold"] {
+        assert!(pdf_props.get(key).is_some(), "Missing wandel_pdf_ops schema key: {}", key);
+    }
+
+    // 2-6. Verify all tool calls succeeded without error
+    for (idx, resp) in responses.iter().enumerate().skip(1) {
+        assert_eq!(
+            resp["result"]["isError"],
+            false,
+            "Tool call {} failed: {}",
+            idx + 1,
+            resp
+        );
+    }
+    assert!(out_dir.join("a_styled.png").exists());
+    assert!(org_pdf.exists());
+    assert!(meta_pdf.exists());
+    assert!(diff_png.exists());
+}

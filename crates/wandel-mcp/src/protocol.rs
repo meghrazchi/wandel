@@ -142,9 +142,15 @@ pub fn tool_definitions() -> Value {
                     "lossless": { "type": "boolean", "default": false },
                     "maxWidth": { "type": "integer", "minimum": 1 },
                     "maxHeight": { "type": "integer", "minimum": 1 },
+                    "exactWidth": { "type": "integer", "minimum": 1, "description": "Exact target width in pixels (use with exactHeight)." },
+                    "exactHeight": { "type": "integer", "minimum": 1, "description": "Exact target height in pixels (use with exactWidth)." },
+                    "keepAspectRatio": { "type": "boolean", "default": true, "description": "Preserve aspect ratio when using exactWidth/exactHeight." },
+                    "neverUpscale": { "type": "boolean", "default": true, "description": "Prevent enlarging media beyond its original dimensions." },
                     "percent": { "type": "number", "minimum": 1, "maximum": 400 },
                     "outputDir": { "type": "string", "description": "Optional output directory (defaults to same folder as each source file)." },
                     "suffix": { "type": "string", "default": "" },
+                    "namingTemplate": { "type": "string", "description": "Optional filename template with tokens like {name}, {width}, {height}, {ext}." },
+                    "preserveStructure": { "type": "boolean", "default": false, "description": "Preserve nested subfolder structure when outputDir is set." },
                     "overwrite": { "type": "boolean", "default": false },
                     "keepMetadata": { "type": "boolean", "default": false },
                     "noHw": { "type": "boolean", "default": false },
@@ -155,15 +161,69 @@ pub fn tool_definitions() -> Value {
                     "flipH": { "type": "boolean", "default": false },
                     "flipV": { "type": "boolean", "default": false },
                     "crop": { "type": "string", "enum": ["1:1", "16:9", "9:16", "4:3", "3:2"] },
+                    "padAspect": { "type": "string", "enum": ["1:1", "16:9", "9:16", "4:3", "3:2"], "description": "Pad image into aspect ratio without cropping." },
+                    "customCrop": {
+                        "type": "object",
+                        "description": "Normalized custom crop rectangle (0.0..=1.0).",
+                        "properties": {
+                            "x": { "type": "number", "minimum": 0, "maximum": 1 },
+                            "y": { "type": "number", "minimum": 0, "maximum": 1 },
+                            "width": { "type": "number", "minimum": 0, "maximum": 1 },
+                            "height": { "type": "number", "minimum": 0, "maximum": 1 }
+                        },
+                        "required": ["x", "y", "width", "height"]
+                    },
                     "autoTrim": { "type": "boolean", "default": false },
                     "trimTolerance": { "type": "integer", "minimum": 0, "maximum": 64, "default": 12 },
+                    "cornerRadiusPercent": { "type": "number", "minimum": 0, "maximum": 50, "default": 0 },
+                    "grayscale": { "type": "boolean", "default": false },
+                    "sharpen": { "type": "boolean", "default": false },
                     "autoLevels": { "type": "boolean", "default": false },
+                    "blurSigma": { "type": "number", "minimum": 0, "maximum": 20, "default": 0 },
+                    "pixelateBlock": { "type": "integer", "minimum": 0, "maximum": 32, "default": 0 },
+                    "vignetteStrength": { "type": "number", "minimum": 0, "maximum": 1, "default": 0 },
+                    "brightness": { "type": "integer", "minimum": -100, "maximum": 100, "default": 0 },
+                    "contrast": { "type": "number", "minimum": -100, "maximum": 100, "default": 0 },
+                    "saturation": { "type": "number", "minimum": -100, "maximum": 100, "default": 0 },
+                    "backgroundHex": { "type": "string", "description": "Hex fill color for transparent pixels when encoding to JPG/BMP (default #ffffff)." },
                     "filter": { "type": "string", "enum": ["none", "sepia", "warm", "cool", "vintage", "bw", "invert"] },
                     "framePaddingPx": { "type": "integer", "minimum": 0, "maximum": 160, "default": 0 },
                     "frameGradient": { "type": "string", "enum": ["none", "indigo", "sunset", "ocean", "emerald", "midnight"] },
                     "dropShadow": { "type": "boolean", "default": false },
+                    "watermark": {
+                        "type": "object",
+                        "description": "Optional PNG/SVG logo watermark overlay for images.",
+                        "properties": {
+                            "imagePath": { "type": "string" },
+                            "opacity": { "type": "number", "minimum": 0.1, "maximum": 1.0, "default": 0.8 },
+                            "scalePercent": { "type": "number", "minimum": 5, "maximum": 60, "default": 18 },
+                            "marginPx": { "type": "integer", "minimum": 0, "default": 24 },
+                            "position": { "type": "string", "enum": ["bottom_right", "bottom_left", "top_right", "top_left", "center"], "default": "bottom_right" }
+                        },
+                        "required": ["imagePath"]
+                    },
                     "mute": { "type": "boolean", "default": false },
                     "fps": { "type": "integer", "minimum": 1, "maximum": 120 },
+                    "gifFps": { "type": "integer", "minimum": 1, "maximum": 30, "default": 15 },
+                    "audioBitrateKbps": { "type": "integer", "minimum": 32, "maximum": 512, "default": 192 },
+                    "sampleRateHz": { "type": "integer", "minimum": 8000, "maximum": 96000 },
+                    "mono": { "type": "boolean", "default": false },
+                    "subtitlePath": { "type": "string", "description": "Optional .srt or .vtt subtitle file path to burn into video." },
+                    "replaceAudioPath": { "type": "string", "description": "Optional external audio file path to replace or add as soundtrack." },
+                    "fadeInSecs": { "type": "number", "minimum": 0, "maximum": 30 },
+                    "fadeOutSecs": { "type": "number", "minimum": 0, "maximum": 30 },
+                    "videoWatermark": {
+                        "type": "object",
+                        "description": "Optional PNG/SVG logo watermark overlay for videos.",
+                        "properties": {
+                            "imagePath": { "type": "string" },
+                            "opacity": { "type": "number", "minimum": 0.1, "maximum": 1.0, "default": 0.8 },
+                            "scalePercent": { "type": "number", "minimum": 5, "maximum": 60, "default": 18 },
+                            "marginPx": { "type": "integer", "minimum": 0, "default": 24 },
+                            "position": { "type": "string", "enum": ["bottom_right", "bottom_left", "top_right", "top_left", "center"], "default": "bottom_right" }
+                        },
+                        "required": ["imagePath"]
+                    },
                     "trimStart": { "type": "number", "minimum": 0 },
                     "trimEnd": { "type": "number", "minimum": 0 },
                     "speed": { "type": "number", "minimum": 0.25, "maximum": 4.0, "default": 1.0 },
@@ -176,9 +236,15 @@ pub fn tool_definitions() -> Value {
                     "trimSilence": { "type": "boolean", "default": false, "description": "Trim leading and trailing silence on audio exports." },
                     "deinterlace": { "type": "boolean", "default": false },
                     "videoSharpen": { "type": "boolean", "default": false },
+                    "pdfDpi": { "type": "integer", "minimum": 72, "maximum": 300, "default": 150, "description": "Rasterization DPI when converting PDF pages to images." },
+                    "pdfPageRange": { "type": "string", "description": "1-based page range when converting PDF pages to images (e.g. '1-3,5')." },
                     "bundleZip": { "type": "boolean", "default": false },
                     "trashOriginals": { "type": "boolean", "default": false },
                     "textWatermark": { "type": "string", "description": "Optional text watermark overlay for images." },
+                    "textWatermarkColor": { "type": "string", "default": "#ffffff" },
+                    "textWatermarkOpacity": { "type": "number", "minimum": 0.1, "maximum": 1.0, "default": 0.75 },
+                    "textWatermarkSizePercent": { "type": "number", "minimum": 2, "maximum": 12, "default": 4.5 },
+                    "textWatermarkPosition": { "type": "string", "enum": ["bottom_right", "bottom_left", "top_right", "top_left", "center"], "default": "bottom_right" },
                     "tiledWatermark": { "type": "boolean", "default": false, "description": "Tile textWatermark diagonally across the entire image." },
                     "removeBgColor": { "type": "string", "description": "Remove solid background color ('auto' samples 4 corners, or '#RRGGBB')." },
                     "removeBgTolerance": { "type": "integer", "minimum": 0, "maximum": 120, "default": 24 },
@@ -188,6 +254,13 @@ pub fn tool_definitions() -> Value {
                         "items": { "type": "string" }
                     },
                     "caption": { "type": "string", "description": "Optional bottom caption bar text rendered below images." },
+                    "duotone": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": { "type": "string" },
+                        "description": "Optional duotone color grading pair [shadowHex, highlightHex]."
+                    },
                     "blurRegions": {
                         "type": "array",
                         "description": "Optional normalized privacy redaction blur boxes [{x, y, width, height}] (0.0..=1.0).",
@@ -238,20 +311,43 @@ pub fn tool_definitions() -> Value {
                             "dark_mode",
                             "extract_markdown",
                             "two_up",
-                            "set_metadata"
+                            "set_metadata",
+                            "remove_blank_pages",
+                            "search",
+                            "interleave",
+                            "organize"
                         ]
                     },
-                    "input": { "type": "string", "description": "Single input PDF path (for split, compress, rotate, reorder, stamp, number, extract_images, scrub_metadata)." },
-                    "inputs": { "type": "array", "items": { "type": "string" }, "description": "Ordered input paths (for merge_images or concat)." },
-                    "output": { "type": "string", "description": "Output PDF file path (or output directory for extract_images)." },
+                    "input": { "type": "string", "description": "Single input PDF path (for split, compress, rotate, reorder, organize, stamp, number, extract_images, scrub_metadata, search, remove_blank_pages, set_metadata)." },
+                    "inputs": { "type": "array", "items": { "type": "string" }, "description": "Ordered input paths (for merge_images, concat, or interleave [odd, even])." },
+                    "output": { "type": "string", "description": "Output PDF file path (or output directory for extract_images; omitted for search)." },
                     "pages": { "type": "string", "description": "1-based page range or ordered list, e.g. '1-3,5' or '3,1-2'." },
+                    "plan": {
+                        "type": "array",
+                        "description": "Ordered page operations for action='organize' (reorder, rotate, duplicate, or omit pages in one lossless pass).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "sourcePage": { "type": "integer", "minimum": 1 },
+                                "rotate": { "type": "integer", "enum": [0, 90, 180, 270], "default": 0 }
+                            },
+                            "required": ["sourcePage"]
+                        }
+                    },
                     "degrees": { "type": "integer", "enum": [90, 180, 270], "default": 90 },
                     "dpi": { "type": "integer", "minimum": 72, "maximum": 300, "default": 120 },
                     "quality": { "type": "integer", "minimum": 25, "maximum": 95, "default": 70 },
                     "pageFit": { "type": "string", "enum": ["fit", "a4", "letter"], "default": "fit" },
-                    "text": { "type": "string", "description": "Watermark stamp text (for stamp) or page number format like '{n} / {total}' (for number)." }
+                    "text": { "type": "string", "description": "Watermark stamp text (for stamp), page number format (for number), or search query (for search)." },
+                    "title": { "type": "string", "description": "Document /Title metadata (for set_metadata)." },
+                    "author": { "type": "string", "description": "Document /Author metadata (for set_metadata)." },
+                    "subject": { "type": "string", "description": "Document /Subject metadata (for set_metadata)." },
+                    "keywords": { "type": "string", "description": "Document /Keywords metadata (for set_metadata)." },
+                    "threshold": { "type": "number", "minimum": 0.5, "maximum": 1.0, "default": 0.995, "description": "Blank-page near-white pixel ratio threshold for remove_blank_pages." },
+                    "caseSensitive": { "type": "boolean", "default": false, "description": "Case-sensitive matching for action='search'." },
+                    "reverseEven": { "type": "boolean", "default": false, "description": "Reverse the even PDF pages when interleaving a duplex scan." }
                 },
-                "required": ["action", "output"],
+                "required": ["action"],
                 "additionalProperties": false
             },
             "annotations": {
@@ -285,7 +381,8 @@ pub fn tool_definitions() -> Value {
                             "make_gif",
                             "gif_frames",
                             "stitch",
-                            "lqip"
+                            "lqip",
+                            "diff"
                         ]
                     },
                     "input": { "type": "string" },
@@ -305,7 +402,11 @@ pub fn tool_definitions() -> Value {
                     "content": { "type": "string", "description": "Text or URL for QR code generation." },
                     "darkHex": { "type": "string", "default": "#000000" },
                     "lightHex": { "type": "string", "default": "#ffffff" },
-                    "sizePx": { "type": "integer", "minimum": 64, "maximum": 2048, "default": 512 }
+                    "sizePx": { "type": "integer", "minimum": 16, "maximum": 2048, "default": 512 },
+                    "delayMs": { "type": "integer", "minimum": 20, "maximum": 10000, "default": 300, "description": "Frame delay in milliseconds for make_gif." },
+                    "maxWidth": { "type": "integer", "minimum": 16, "description": "Optional max width for make_gif." },
+                    "direction": { "type": "string", "enum": ["vertical", "horizontal"], "default": "vertical", "description": "Stitch direction for action='stitch'." },
+                    "padding": { "type": "integer", "minimum": 0, "default": 0, "description": "Gap in pixels between stitched images." }
                 },
                 "required": ["action"],
                 "additionalProperties": false

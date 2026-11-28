@@ -82,12 +82,14 @@ interface FileQueueProps {
   onMergePdf: (pageFit: PdfPageFit) => void;
   onCreateGrid: () => void;
   onCompareImages: () => void;
+  onPixelDiff: () => void;
   onCreateSlideshow: () => void;
   onCreateAnimatedGif: () => void;
   onStitchImages: (vertical: boolean) => void;
   onCreateSpriteSheet: () => void;
   onMergeVideos: () => void;
   onMergePdfs: () => void;
+  onInterleavePdfs: () => void;
   onSplitPdf: (item: QueueItem) => void;
   onCompressPdf: (item: QueueItem) => void;
   onRotatePdf: (item: QueueItem) => void;
@@ -100,6 +102,7 @@ interface FileQueueProps {
   onExportPdfMarkdown: (item: QueueItem) => void;
   onTwoUpPdf: (item: QueueItem) => void;
   onEditPdfMeta: (item: QueueItem) => void;
+  onDeblankPdf: (item: QueueItem) => void;
   onDarkModePdf: (item: QueueItem) => void;
   onScrubPdf: (item: QueueItem) => void;
   onPaletteItem: (item: QueueItem) => void;
@@ -141,12 +144,14 @@ export function FileQueue({
   onMergePdf,
   onCreateGrid,
   onCompareImages,
+  onPixelDiff,
   onCreateSlideshow,
   onCreateAnimatedGif,
   onStitchImages,
   onCreateSpriteSheet,
   onMergeVideos,
   onMergePdfs,
+  onInterleavePdfs,
   onSplitPdf,
   onCompressPdf,
   onRotatePdf,
@@ -159,6 +164,7 @@ export function FileQueue({
   onExportPdfMarkdown,
   onTwoUpPdf,
   onEditPdfMeta,
+  onDeblankPdf,
   onDarkModePdf,
   onScrubPdf,
   onPaletteItem,
@@ -340,6 +346,7 @@ export function FileQueue({
                       </div>
                       <MenuRow icon={<Grid2x2 className="h-3.5 w-3.5 text-violet-500" />} label="Contact Sheet Grid" onClick={() => { setBatchMenuOpen(false); onCreateGrid(); }} />
                       <MenuRow icon={<Columns2 className="h-3.5 w-3.5 text-cyan-500" />} label="Before / After Compare" onClick={() => { setBatchMenuOpen(false); onCompareImages(); }} />
+                      <MenuRow icon={<Eye className="h-3.5 w-3.5 text-rose-500" />} label="Visual Pixel Diff" onClick={() => { setBatchMenuOpen(false); onPixelDiff(); }} />
                       <MenuRow icon={<Video className="h-3.5 w-3.5 text-pink-500" />} label="Slideshow MP4 Video" onClick={() => { setBatchMenuOpen(false); onCreateSlideshow(); }} />
                       <MenuRow icon={<Film className="h-3.5 w-3.5 text-emerald-500" />} label="Create Animated GIF" onClick={() => { setBatchMenuOpen(false); onCreateAnimatedGif(); }} />
                       <MenuRow icon={<ArrowUpDown className="h-3.5 w-3.5 text-indigo-500" />} label="Stitch Vertically" onClick={() => { setBatchMenuOpen(false); onStitchImages(true); }} />
@@ -349,7 +356,10 @@ export function FileQueue({
                     </>
                   )}
                   {rawPdfCount >= 2 && (
-                    <MenuRow icon={<FileText className="h-3.5 w-3.5 text-rose-500" />} label={`Merge ${rawPdfCount} PDFs (Lossless)`} onClick={() => { setBatchMenuOpen(false); onMergePdfs(); }} />
+                    <>
+                      <MenuRow icon={<FileText className="h-3.5 w-3.5 text-rose-500" />} label={`Merge ${rawPdfCount} PDFs (Lossless)`} onClick={() => { setBatchMenuOpen(false); onMergePdfs(); }} />
+                      <MenuRow icon={<Layers className="h-3.5 w-3.5 text-indigo-500" />} label="Interleave 2 PDFs (Duplex)" onClick={() => { setBatchMenuOpen(false); onInterleavePdfs(); }} />
+                    </>
                   )}
                   {rawVideoCount >= 2 && (
                     <MenuRow icon={<Film className="h-3.5 w-3.5 text-indigo-500" />} label={`Merge ${rawVideoCount} Videos`} onClick={() => { setBatchMenuOpen(false); onMergeVideos(); }} />
@@ -726,6 +736,7 @@ export function FileQueue({
                               <MenuRow icon={<Code2 className="h-3.5 w-3.5 text-sky-500" />} label="Export as Markdown (.md)" onClick={() => { setOpenRowMenuId(null); onExportPdfMarkdown(item); }} />
                               <MenuRow icon={<Columns2 className="h-3.5 w-3.5 text-cyan-500" />} label="2-Up Side-by-Side PDF" onClick={() => { setOpenRowMenuId(null); onTwoUpPdf(item); }} />
                               <MenuRow icon={<Info className="h-3.5 w-3.5 text-amber-500" />} label="Edit PDF Metadata" onClick={() => { setOpenRowMenuId(null); onEditPdfMeta(item); }} />
+                              <MenuRow icon={<Trash2 className="h-3.5 w-3.5 text-indigo-500" />} label="Remove Blank Pages" onClick={() => { setOpenRowMenuId(null); onDeblankPdf(item); }} />
                               <MenuRow icon={<Eye className="h-3.5 w-3.5 text-violet-500" />} label="Convert to Dark Mode PDF" onClick={() => { setOpenRowMenuId(null); onDarkModePdf(item); }} />
                               <MenuRow icon={<ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />} label="Scrub Metadata (Privacy)" onClick={() => { setOpenRowMenuId(null); onScrubPdf(item); }} />
                               <MenuRow icon={<Minimize2 className="h-3.5 w-3.5 text-emerald-500" />} label="Compress PDF Size" onClick={() => { setOpenRowMenuId(null); onCompressPdf(item); }} />

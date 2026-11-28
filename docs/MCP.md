@@ -26,18 +26,26 @@ When started with `--http <addr>` (recommended: loopback `127.0.0.1:<port>`):
 
 ### Client Configuration (Antigravity, Claude Desktop, Cursor, Windsurf)
 
+> **Best Practice (Never Opens the UI):** Always point your MCP client to the standalone headless `wandel` CLI binary using its **absolute path** (for example `/Users/<you>/.local/bin/wandel` on macOS/Linux, or `C:\Users\<you>\scoop\shims\wandel.exe` on Windows). Claude Desktop launches MCP servers with a minimal system `PATH`, and using the headless `wandel` CLI guarantees zero GUI window or Dock icon initialization while automatically discovering bundled/Homebrew `ffmpeg` & `ffprobe`.
+
 ```json
 {
   "mcpServers": {
     "wandel": {
-      "command": "wandel",
+      "command": "/Users/YOUR_USERNAME/.local/bin/wandel",
       "args": ["mcp", "--allowed-dir", "/path/to/workspace"]
     }
   }
 }
 ```
 
-> **Tip:** Open Wandel Desktop and click **MCP** in the top header (or press `⌘K → Open MCP Server Integration`) to verify server health, pick a sandbox folder, and copy the exact JSON config for your system.
+Install the standalone headless CLI in one command:
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/meghrazchi/wandel/main/packaging/install.sh | bash
+```
+
+> **Tip:** Open Wandel Desktop and click **MCP** in the top header (or press `⌘K -> Open MCP Server Integration`) to verify server health, auto-detect your absolute headless CLI path, pick a sandbox folder, and copy the exact JSON config for your system.
 
 ---
 

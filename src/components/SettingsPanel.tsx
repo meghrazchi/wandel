@@ -187,7 +187,8 @@ export function SettingsPanel({
     (img.blurSigma > 0 ? 1 : 0) +
     (img.pixelateBlock > 0 ? 1 : 0) +
     (img.vignetteStrength > 0 ? 1 : 0) +
-    (img.removeBgColor ? 1 : 0);
+    (img.removeBgColor ? 1 : 0) +
+    (img.duotone ? 1 : 0);
 
   const imgFrameCount =
     (img.cornerRadiusPercent > 0 ? 1 : 0) +
@@ -268,6 +269,9 @@ export function SettingsPanel({
             : []),
           ...(img.captionText?.trim()
             ? [{ label: "Caption Bar", clear: () => updateImage({ captionText: null }) }]
+            : []),
+          ...(img.duotone
+            ? [{ label: "Duotone", clear: () => updateImage({ duotone: null }) }]
             : []),
         ]
       : [
@@ -902,6 +906,42 @@ export function SettingsPanel({
             </div>
 
             <div>
+              <div className="mb-1 text-[10px] font-semibold text-zinc-500">
+                Duotone Grading
+              </div>
+              <div className="mb-2.5 grid grid-cols-5 gap-1">
+                {(
+                  [
+                    { label: "Off", pair: null },
+                    { label: "Indigo", pair: ["#1e1b4b", "#c084fc"] as [string, string] },
+                    { label: "Sunset", pair: ["#431407", "#fb923c"] as [string, string] },
+                    { label: "Mint", pair: ["#064e3b", "#6ee7b7"] as [string, string] },
+                    { label: "Cyber", pair: ["#0f172a", "#38bdf8"] as [string, string] },
+                  ] as const
+                ).map((d) => {
+                  const isActive =
+                    (d.pair === null && !img.duotone) ||
+                    (d.pair !== null &&
+                      img.duotone?.[0] === d.pair[0] &&
+                      img.duotone?.[1] === d.pair[1]);
+                  return (
+                    <button
+                      key={d.label}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => updateImage({ duotone: d.pair })}
+                      className={`rounded-md py-1 text-[10px] font-semibold transition cursor-pointer ${
+                        isActive
+                          ? "bg-indigo-600 text-white"
+                          : "border border-zinc-200 bg-white text-zinc-600 hover:border-indigo-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+                      }`}
+                    >
+                      {d.label}
+                    </button>
+                  );
+                })}
+              </div>
+
               <div className="mb-1 text-[10px] font-semibold text-zinc-500">
                 Color Look Preset
               </div>

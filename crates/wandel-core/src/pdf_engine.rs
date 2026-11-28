@@ -1749,6 +1749,296 @@ pub fn set_pdf_metadata(
     Ok(size)
 }
 
+/// Automatically detects blank (near-white) pages in parallel at 48 DPI via `hayro` + `rayon`
+/// and losslessly deletes only those pages via `lopdf`, preserving vector text on all kept pages.
+/// Returns `(kept_pages, removed_pages, output_bytes)`.
+pub fn remove_blank_pdf_pages(
+    input: &Path,
+    output: &Path,
+    white_threshold: f32,
+) -> Result<(usize, usize, u64)> {
+    let bytes = Arc::new(std::fs::read(input)?);
+    let pdf = HayroPdf::new(Arc::clone(&bytes))
+        .map_err(|e| WandelError::ImageDecode(format!("Failed to parse PDF: {:?}", e)))?;
+    let total_pages = pdf.pages().len();
+    if total_pages == 0 {
+        return Err(WandelError::ImageDecode("PDF contains no pages".into()));
+    }
+
+    let thresh = white_threshold.clamp(0.90, 0.9999);
+    let scale = 48.0f32 / 72.0;
+
+    let blank_flags: Result<Vec<bool>> = (0..total_pages)
+        .into_par_iter()
+        .map(|idx| {
+            let thread_pdf = HayroPdf::new(Arc::clone(&bytes))
+                .map_err(|e| WandelError::ImageDecode(format!("PDF parse error: {:?}", e)))?;
+            let page = thread_pdf
+                .pages()
+                .get(idx)
+                .ok_or_else(|| WandelError::ImageDecode("Page index out of bounds".into()))?;
+            let cache = RenderCache::new();
+            let pixmap = hayro::render(
+                page,
+                &cache,
+                &InterpreterSettings::default(),
+                &RenderSettings::default(),
+                &PixmapSettings {
+                    x_scale: scale,
+                    y_scale: scale,
+                    bg_color: WHITE,
+                },
+            );
+            let rgb = pixmap_to_dynamic_image(pixmap)?.to_rgb8();
+            let total_px = (rgb.width() as usize) * (rgb.height() as usize);
+            if total_px == 0 {
+                return Ok(true);
+            }
+            let near_white = rgb
+                .as_raw()
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .filter(|px| px[0] >= 245 && px[1] >= 245 && px[2] >= 245)
+                .count();
+            Ok((near_white as f32 / total_px as f32) >= thresh)
+        })
+        .collect();
+    let blank_flags = blank_flags?;
+
+    let delete_one_based: Vec<u32> = blank_flags
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, &is_blank)| is_blank.then_some((idx + 1) as u32))
+        .collect();
+
+    if delete_one_based.len() == total_pages {
+        return Err(WandelError::InvalidSettings(
+            "All pages appear blank; refusing to produce an empty PDF".into(),
+        ));
+    }
+
+    let mut doc = lopdf::Document::load(input)
+        .map_err(|e| WandelError::ImageDecode(format!("Failed to load PDF: {}", e)))?;
+    if !delete_one_based.is_empty() {
+        doc.delete_pages(&delete_one_based);
+        doc.prune_objects();
+    }
+
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    doc.save(output)
+        .map_err(|e| WandelError::ImageEncode(format!("Failed to save deblanked PDF: {}", e)))?;
+    let size = std::fs::metadata(output)?.len();
+    let removed = delete_one_based.len();
+    let kept = total_pages - removed;
+    Ok((kept, removed, size))
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfSearchMatch {
+    pub page: u32,
+    pub occurrences: usize,
+    pub snippet: String,
+}
+
+/// Searches a PDF offline for `query` and returns every matching page with occurrence count and context snippet.
+pub fn search_pdf_text(
+    input: &Path,
+    query: &str,
+    case_sensitive: bool,
+) -> Result<Vec<PdfSearchMatch>> {
+    let q = query.trim();
+    if q.is_empty() {
+        return Err(WandelError::InvalidSettings(
+            "Search query cannot be empty".into(),
+        ));
+    }
+
+    let pages = extract_pdf_text(input)?;
+    let needle = if case_sensitive {
+        q.to_string()
+    } else {
+        q.to_ascii_lowercase()
+    };
+
+    let mut matches = Vec::new();
+    for (page_num, text) in pages {
+        let hay = if case_sensitive {
+            text.clone()
+        } else {
+            text.to_ascii_lowercase()
+        };
+        let count = hay.matches(&needle).count();
+        if count > 0 {
+            let snippet = if let Some(pos) = hay.find(&needle) {
+                let start = text
+                    .char_indices()
+                    .take_while(|(i, _)| *i <= pos.saturating_sub(40))
+                    .last()
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
+                let end = text
+                    .char_indices()
+                    .find(|(i, _)| *i >= (pos + needle.len() + 60).min(text.len()))
+                    .map(|(i, _)| i)
+                    .unwrap_or(text.len());
+                text[start..end].replace('\n', " ").trim().to_string()
+            } else {
+                String::new()
+            };
+            matches.push(PdfSearchMatch {
+                page: page_num,
+                occurrences: count,
+                snippet,
+            });
+        }
+    }
+    Ok(matches)
+}
+
+/// Losslessly interleaves two PDFs (`odd_pdf` and `even_pdf`) for single-sided duplex scanner workflows.
+/// When `reverse_even` is true, even pages are taken in reverse order (`O1, En, O2, En-1, ...`).
+/// Returns `(total_pages, output_bytes)`.
+pub fn interleave_pdfs(
+    odd_pdf: &Path,
+    even_pdf: &Path,
+    reverse_even: bool,
+    output: &Path,
+) -> Result<(usize, u64)> {
+    use lopdf::{Document, Object, ObjectId};
+    use std::collections::BTreeMap;
+
+    let mut doc_odd = Document::load(odd_pdf)
+        .map_err(|e| WandelError::ImageDecode(format!("Failed to load odd PDF: {}", e)))?;
+    let mut doc_even = Document::load(even_pdf)
+        .map_err(|e| WandelError::ImageDecode(format!("Failed to load even PDF: {}", e)))?;
+
+    let mut max_id = 1u32;
+    doc_odd.renumber_objects_with(max_id);
+    max_id = doc_odd.max_id + 1;
+    doc_even.renumber_objects_with(max_id);
+
+    let odd_ids: Vec<ObjectId> = doc_odd.get_pages().into_values().collect();
+    let mut even_ids: Vec<ObjectId> = doc_even.get_pages().into_values().collect();
+    if reverse_even {
+        even_ids.reverse();
+    }
+
+    if odd_ids.is_empty() && even_ids.is_empty() {
+        return Err(WandelError::ImageDecode("Both input PDFs have no pages".into()));
+    }
+
+    let mut ordered_ids: Vec<ObjectId> = Vec::with_capacity(odd_ids.len() + even_ids.len());
+    let max_len = odd_ids.len().max(even_ids.len());
+    for i in 0..max_len {
+        if let Some(&id) = odd_ids.get(i) {
+            ordered_ids.push(id);
+        }
+        if let Some(&id) = even_ids.get(i) {
+            ordered_ids.push(id);
+        }
+    }
+
+    let mut all_pages: BTreeMap<ObjectId, Object> = BTreeMap::new();
+    for &id in &odd_ids {
+        if let Ok(obj) = doc_odd.get_object(id) {
+            all_pages.insert(id, obj.to_owned());
+        }
+    }
+    for &id in &even_ids {
+        if let Ok(obj) = doc_even.get_object(id) {
+            all_pages.insert(id, obj.to_owned());
+        }
+    }
+
+    let mut all_objects: BTreeMap<ObjectId, Object> = BTreeMap::new();
+    all_objects.extend(doc_odd.objects);
+    all_objects.extend(doc_even.objects);
+
+    let mut merged = Document::with_version("1.7");
+    let mut catalog_object: Option<(ObjectId, Object)> = None;
+    let mut pages_object: Option<(ObjectId, Object)> = None;
+
+    for (object_id, object) in all_objects {
+        match object.type_name().unwrap_or(b"") {
+            b"Catalog" => {
+                if catalog_object.is_none() {
+                    catalog_object = Some((object_id, object));
+                }
+            }
+            b"Pages" => {
+                if let Ok(dictionary) = object.as_dict() {
+                    let mut dictionary = dictionary.clone();
+                    if let Some((_, ref existing)) = pages_object {
+                        if let Ok(old_dict) = existing.as_dict() {
+                            dictionary.extend(old_dict);
+                        }
+                    }
+                    pages_object = Some((
+                        pages_object.map(|(id, _)| id).unwrap_or(object_id),
+                        Object::Dictionary(dictionary),
+                    ));
+                }
+            }
+            b"Page" | b"Outlines" | b"Outline" => {}
+            _ => {
+                merged.objects.insert(object_id, object);
+            }
+        }
+    }
+
+    let (pages_id, pages_obj) = pages_object
+        .ok_or_else(|| WandelError::ImageDecode("No Pages root found in input PDFs".into()))?;
+    let (catalog_id, catalog_obj) = catalog_object
+        .ok_or_else(|| WandelError::ImageDecode("No Catalog root found in input PDFs".into()))?;
+
+    for &page_id in &ordered_ids {
+        if let Some(mut page_obj) = all_pages.get(&page_id).cloned() {
+            if let Ok(dict) = page_obj.as_dict_mut() {
+                dict.set("Parent", pages_id);
+            }
+            merged.objects.insert(page_id, page_obj);
+        }
+    }
+
+    if let Ok(mut pages_dict) = pages_obj.as_dict().cloned() {
+        pages_dict.set("Count", ordered_ids.len() as u32);
+        pages_dict.set(
+            "Kids",
+            ordered_ids
+                .iter()
+                .map(|&id| Object::Reference(id))
+                .collect::<Vec<_>>(),
+        );
+        merged.objects.insert(pages_id, Object::Dictionary(pages_dict));
+    }
+
+    if let Ok(mut catalog_dict) = catalog_obj.as_dict().cloned() {
+        catalog_dict.set("Pages", pages_id);
+        catalog_dict.remove(b"Outlines");
+        merged
+            .objects
+            .insert(catalog_id, Object::Dictionary(catalog_dict));
+    }
+
+    merged.trailer.set("Root", catalog_id);
+    merged.max_id = merged.objects.len() as u32;
+    merged.renumber_objects();
+    merged.adjust_zero_pages();
+
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    merged
+        .save(output)
+        .map_err(|e| WandelError::ImageEncode(format!("Failed to save interleaved PDF: {}", e)))?;
+    let size = std::fs::metadata(output)?.len();
+    Ok((ordered_ids.len(), size))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

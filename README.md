@@ -4,8 +4,8 @@
 
 [![CI](https://github.com/meghrazchi/wandel/actions/workflows/ci.yml/badge.svg)](https://github.com/meghrazchi/wandel/actions/workflows/ci.yml)
 [![Release](https://github.com/meghrazchi/wandel/releases)](https://github.com/meghrazchi/wandel/releases)
-![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-indigo)
-![License](https://img.shields.io/badge/license-MIT-emerald)
+![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-4f46e5)
+![License](https://img.shields.io/badge/license-MIT-4f46e5)
 
 Stop uploading private photos, screen recordings, and confidential PDFs to slow, ad-filled websites. **Wandel** puts every media tool you need right on your computer as a fast **Desktop App**, a scriptable **CLI**, and a built-in **AI Agent MCP Server**.
 

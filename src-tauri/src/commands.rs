@@ -756,18 +756,80 @@ pub async fn split_media_segments(
     .map_err(|e| e.to_string())
 }
 
+fn resolve_headless_cli_binary() -> Option<PathBuf> {
+    let exe_name = if cfg!(windows) { "wandel.exe" } else { "wandel" };
+    let current = std::env::current_exe()
+        .ok()
+        .and_then(|p| std::fs::canonicalize(p).ok());
+    let is_distinct_file = |p: &PathBuf| -> bool {
+        if !p.is_file() {
+            return false;
+        }
+        let cand = std::fs::canonicalize(p).ok();
+        match (&current, &cand) {
+            (Some(cur), Some(c)) => cur != c,
+            _ => true,
+        }
+    };
+
+    // 1. Sibling `wandel` CLI next to the desktop binary (if distinct from desktop GUI)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let sibling = dir.join(exe_name);
+            if is_distinct_file(&sibling) {
+                return Some(sibling);
+            }
+        }
+    }
+
+    // 2. Standard user & package-manager install directories
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+        let home_dir = PathBuf::from(home);
+        for rel in [
+            [".local", "bin", exe_name],
+            [".cargo", "bin", exe_name],
+            ["scoop", "shims", exe_name],
+        ] {
+            let p = home_dir.join(rel[0]).join(rel[1]).join(rel[2]);
+            if is_distinct_file(&p) {
+                return Some(p);
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    for dir in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"] {
+        let p = PathBuf::from(dir).join(exe_name);
+        if is_distinct_file(&p) {
+            return Some(p);
+        }
+    }
+
+    // 3. Fallback to PATH (excluding the desktop GUI binary itself)
+    if let Some(path_var) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            let p = dir.join(exe_name);
+            if is_distinct_file(&p) {
+                return Some(p);
+            }
+        }
+    }
+
+    None
+}
+
 #[tauri::command]
 pub fn get_mcp_status(state: State<'_, AppState>) -> serde_json::Value {
     let server = wandel_mcp::McpServer::new(state.ffmpeg_path.clone(), state.ffprobe_path.clone());
     let mut info = server.health_check();
-    let cli_command = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|dir| dir.join(if cfg!(windows) { "wandel.exe" } else { "wandel" })))
-        .filter(|p| p.is_file())
+    let resolved = resolve_headless_cli_binary();
+    let cli_installed = resolved.is_some();
+    let cli_command = resolved
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| "wandel".to_string());
     if let Some(obj) = info.as_object_mut() {
         obj.insert("cliCommand".into(), serde_json::Value::String(cli_command));
+        obj.insert("cliInstalled".into(), serde_json::Value::Bool(cli_installed));
     }
     info
 }
@@ -1004,6 +1066,62 @@ pub async fn set_pdf_metadata(
             subject.as_deref(),
             keywords.as_deref(),
         )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn remove_blank_pdf_pages(
+    path: String,
+    output_path: String,
+    white_threshold: Option<f32>,
+) -> Result<(usize, usize, u64), String> {
+    let input = PathBuf::from(path);
+    let out = PathBuf::from(output_path);
+    let thresh = white_threshold.unwrap_or(0.995);
+    tauri::async_runtime::spawn_blocking(move || {
+        wandel_core::remove_blank_pdf_pages(&input, &out, thresh)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn create_pixel_diff(
+    first_path: String,
+    second_path: String,
+    output_path: String,
+    threshold: Option<u8>,
+    state: State<'_, AppState>,
+) -> Result<wandel_core::PixelDiffResult, String> {
+    let ffmpeg = state.ffmpeg_path.clone();
+    let p1 = PathBuf::from(first_path);
+    let p2 = PathBuf::from(second_path);
+    let out = PathBuf::from(output_path);
+    let thresh = threshold.unwrap_or(10);
+    tauri::async_runtime::spawn_blocking(move || {
+        wandel_core::create_pixel_diff(&p1, &p2, &out, thresh, ffmpeg.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn interleave_pdfs(
+    odd_path: String,
+    even_path: String,
+    reverse_even: bool,
+    output_path: String,
+) -> Result<(usize, u64), String> {
+    let p_odd = PathBuf::from(odd_path);
+    let p_even = PathBuf::from(even_path);
+    let out = PathBuf::from(output_path);
+    tauri::async_runtime::spawn_blocking(move || {
+        wandel_core::interleave_pdfs(&p_odd, &p_even, reverse_even, &out)
     })
     .await
     .map_err(|e| e.to_string())?

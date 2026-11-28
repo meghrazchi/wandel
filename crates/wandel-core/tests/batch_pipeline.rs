@@ -2384,3 +2384,137 @@ fn v32_stitch_pdf_meta_and_lqip() {
     assert!(lqip.bytes < 1500);
     assert!(lqip.width <= 24);
 }
+
+#[test]
+fn v33_pdf_deblank_and_image_duotone() {
+    use wandel_core::image_engine::convert_image;
+    use wandel_core::{inspect_pdf, merge_images_to_pdf, remove_blank_pdf_pages, PdfPageFit};
+
+    let dir = tempdir().unwrap();
+
+    // 1. Parallel Duotone Grading maps black -> shadow_hex and white -> highlight_hex
+    let grad = dir.path().join("bw.png");
+    let bw = ImageBuffer::from_fn(40, 20, |x, _| {
+        if x < 20 {
+            Rgba([0, 0, 0, 255])
+        } else {
+            Rgba([255, 255, 255, 255])
+        }
+    });
+    DynamicImage::ImageRgba8(bw).save(&grad).unwrap();
+
+    let duo_out = dir.path().join("duotone.png");
+    convert_image(
+        &grad,
+        &duo_out,
+        &ImageSettings {
+            format: ImageFormat::Png,
+            duotone: Some(("#1e1b4b".into(), "#c084fc".into())),
+            ..Default::default()
+        },
+        None,
+    )
+    .unwrap();
+    let duo = image::open(&duo_out).unwrap().to_rgba8();
+    assert_eq!(duo.get_pixel(2, 10).0, [0x1e, 0x1b, 0x4b, 255]);
+    assert_eq!(duo.get_pixel(35, 10).0, [0xc0, 0x84, 0xfc, 255]);
+
+    // 2. Lossless Blank PDF Page Remover: 3 pages (dark, pure-white blank, dark) -> 2 kept, 1 removed
+    let dark_img = dir.path().join("dark.png");
+    let blank_img = dir.path().join("blank.png");
+    DynamicImage::ImageRgba8(ImageBuffer::from_pixel(100, 140, Rgba([30, 40, 80, 255])))
+        .save(&dark_img)
+        .unwrap();
+    DynamicImage::ImageRgba8(ImageBuffer::from_pixel(100, 140, Rgba([255, 255, 255, 255])))
+        .save(&blank_img)
+        .unwrap();
+
+    let mixed_pdf = dir.path().join("mixed.pdf");
+    merge_images_to_pdf(
+        &[dark_img.clone(), blank_img, dark_img],
+        &mixed_pdf,
+        &ImageSettings::default(),
+        PdfPageFit::A4,
+        None,
+    )
+    .unwrap();
+
+    let clean_pdf = dir.path().join("deblanked.pdf");
+    let (kept, removed, bytes) = remove_blank_pdf_pages(&mixed_pdf, &clean_pdf, 0.995).unwrap();
+    assert_eq!(kept, 2);
+    assert_eq!(removed, 1);
+    assert!(bytes > 0);
+    let (final_pages, _, _, _) = inspect_pdf(&clean_pdf);
+    assert_eq!(final_pages, Some(2));
+}
+
+#[test]
+fn v34_pixel_diff_pdf_search_and_interleave() {
+    use wandel_core::{
+        create_pixel_diff, inspect_pdf, interleave_pdfs, merge_images_to_pdf, search_pdf_text,
+        stamp_pdf_text, PdfPageFit,
+    };
+
+    let dir = tempdir().unwrap();
+
+    // 1. Visual Pixel Diff Highlighter: 40x40 images differing in a 10x10 block -> 100 changed pixels (6.25%)
+    let img_a = dir.path().join("a.png");
+    let img_b = dir.path().join("b.png");
+    DynamicImage::ImageRgba8(ImageBuffer::from_pixel(40, 40, Rgba([100, 100, 100, 255])))
+        .save(&img_a)
+        .unwrap();
+    let img_b_buf = ImageBuffer::from_fn(40, 40, |x, y| {
+        if x < 10 && y < 10 {
+            Rgba([255, 255, 255, 255])
+        } else {
+            Rgba([100, 100, 100, 255])
+        }
+    });
+    DynamicImage::ImageRgba8(img_b_buf).save(&img_b).unwrap();
+
+    let diff_out = dir.path().join("diff.png");
+    let diff = create_pixel_diff(&img_a, &img_b, &diff_out, 10, None).unwrap();
+    assert_eq!(diff.changed_pixels, 100);
+    assert_eq!(diff.total_pixels, 1600);
+    assert!((diff.diff_percent - 6.25).abs() < 0.01);
+    assert!(diff_out.exists());
+
+    // 2. Offline PDF Text Search on a stamped PDF
+    let base_pdf = dir.path().join("base.pdf");
+    merge_images_to_pdf(
+        &[img_a.clone(), img_b.clone()],
+        &base_pdf,
+        &ImageSettings::default(),
+        PdfPageFit::A4,
+        None,
+    )
+    .unwrap();
+    let stamped_pdf = dir.path().join("stamped.pdf");
+    stamp_pdf_text(&base_pdf, &stamped_pdf, "WANDEL_V34_INVOICE").unwrap();
+
+    let matches = search_pdf_text(&stamped_pdf, "v34_invoice", false).unwrap();
+    assert!(!matches.is_empty());
+    assert_eq!(matches[0].page, 1);
+    assert!(matches[0].occurrences >= 1);
+    assert!(matches[0]
+        .snippet
+        .to_ascii_lowercase()
+        .contains("v34_invoice"));
+
+    // 3. Lossless Duplex PDF Interleaver: two 2-page PDFs with reverse_even = true -> 4 pages
+    let even_pdf = dir.path().join("even.pdf");
+    merge_images_to_pdf(
+        &[img_b, img_a],
+        &even_pdf,
+        &ImageSettings::default(),
+        PdfPageFit::A4,
+        None,
+    )
+    .unwrap();
+    let interleaved = dir.path().join("interleaved.pdf");
+    let (pages, bytes) = interleave_pdfs(&base_pdf, &even_pdf, true, &interleaved).unwrap();
+    assert_eq!(pages, 4);
+    assert!(bytes > 0);
+    let (final_pages, _, _, _) = inspect_pdf(&interleaved);
+    assert_eq!(final_pages, Some(4));
+}

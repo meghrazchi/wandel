@@ -320,6 +320,9 @@ pub struct ImageSettings {
     /// Optional bottom caption bar text rendered cleanly below the image
     #[serde(default)]
     pub caption_text: Option<String>,
+    /// Optional duotone color grading pair `(shadow_hex, highlight_hex)`
+    #[serde(default)]
+    pub duotone: Option<(String, String)>,
 }
 
 fn default_remove_bg_tolerance() -> u8 {
@@ -378,6 +381,7 @@ impl Default for ImageSettings {
             remove_bg_tolerance: 24,
             extra_formats: Vec::new(),
             caption_text: None,
+            duotone: None,
         }
     }
 }

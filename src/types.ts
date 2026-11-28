@@ -165,6 +165,7 @@ export interface ImageSettings {
   removeBgTolerance?: number;
   extraFormats?: ImageFormat[];
   captionText?: string | null;
+  duotone?: [string, string] | null;
 }
 
 export interface VideoSettings {
@@ -447,6 +448,7 @@ export const DEFAULT_SETTINGS: ConversionSettings = {
     removeBgTolerance: 24,
     extraFormats: [],
     captionText: null,
+    duotone: null,
   },
   video: {
     target: { kind: "video", format: "mp4_h264" },

@@ -279,6 +279,46 @@ fn apply_target_format(settings: &mut ConversionSettings, to: &str) -> Result<()
     Ok(())
 }
 
+fn parse_watermark_pos(s: Option<&str>) -> WatermarkPosition {
+    match s.unwrap_or("bottom_right") {
+        "bottom_left" => WatermarkPosition::BottomLeft,
+        "top_right" => WatermarkPosition::TopRight,
+        "top_left" => WatermarkPosition::TopLeft,
+        "center" => WatermarkPosition::Center,
+        _ => WatermarkPosition::BottomRight,
+    }
+}
+
+fn parse_logo_watermark(
+    ctx: &McpContext,
+    val: &Value,
+) -> Result<Option<wandel_core::WatermarkSettings>, String> {
+    let Some(obj) = val.as_object() else {
+        return Ok(None);
+    };
+    let Some(path_str) = obj.get("imagePath").and_then(|v| v.as_str()) else {
+        return Ok(None);
+    };
+    let p = PathBuf::from(path_str);
+    ctx.validate_path(&p)?;
+    Ok(Some(wandel_core::WatermarkSettings {
+        image_path: p,
+        opacity: obj
+            .get("opacity")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.8) as f32,
+        scale_percent: obj
+            .get("scalePercent")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(18.0) as f32,
+        margin_px: obj
+            .get("marginPx")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(24) as u32,
+        position: parse_watermark_pos(obj.get("position").and_then(|v| v.as_str())),
+    }))
+}
+
 fn tool_convert<F>(
     ctx: &McpContext,
     args: &Value,
@@ -328,7 +368,20 @@ where
 
     let max_w = args.get("maxWidth").and_then(|v| v.as_u64()).map(|v| v as u32);
     let max_h = args.get("maxHeight").and_then(|v| v.as_u64()).map(|v| v as u32);
-    if let Some(pct) = args.get("percent").and_then(|v| v.as_f64()) {
+    let exact_w = args.get("exactWidth").and_then(|v| v.as_u64()).map(|v| v as u32);
+    let exact_h = args.get("exactHeight").and_then(|v| v.as_u64()).map(|v| v as u32);
+    if let (Some(w), Some(h)) = (exact_w, exact_h) {
+        let mode = ResizeMode::Exact {
+            width: w,
+            height: h,
+            keep_aspect_ratio: args
+                .get("keepAspectRatio")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
+        };
+        settings.image.resize = mode.clone();
+        settings.video.resize = mode;
+    } else if let Some(pct) = args.get("percent").and_then(|v| v.as_f64()) {
         let mode = ResizeMode::Percentage { percent: pct as f32 };
         settings.image.resize = mode.clone();
         settings.video.resize = mode;
@@ -339,6 +392,10 @@ where
         };
         settings.image.resize = mode.clone();
         settings.video.resize = mode;
+    }
+    if let Some(nu) = args.get("neverUpscale").and_then(|v| v.as_bool()) {
+        settings.image.never_upscale = nu;
+        settings.video.never_upscale = nu;
     }
 
     if let Some(keep) = args.get("keepMetadata").and_then(|v| v.as_bool()) {
@@ -374,14 +431,75 @@ where
             other => return ToolCallOutcome::err(format!("Unknown crop ratio '{}'", other)),
         };
     }
+    if let Some(c) = str_arg(args, "padAspect") {
+        settings.image.pad_aspect = match c {
+            "1:1" => Some(AspectCrop::Square1x1),
+            "16:9" => Some(AspectCrop::Landscape16x9),
+            "9:16" => Some(AspectCrop::Portrait9x16),
+            "4:3" => Some(AspectCrop::Standard4x3),
+            "3:2" => Some(AspectCrop::Photo3x2),
+            other => return ToolCallOutcome::err(format!("Unknown padAspect '{}'", other)),
+        };
+    }
+    if let Some(cc) = args.get("customCrop") {
+        if let (Some(x), Some(y), Some(width), Some(height)) = (
+            cc.get("x").and_then(|v| v.as_f64()),
+            cc.get("y").and_then(|v| v.as_f64()),
+            cc.get("width").and_then(|v| v.as_f64()),
+            cc.get("height").and_then(|v| v.as_f64()),
+        ) {
+            settings.image.custom_crop = Some(wandel_core::NormalizedCrop {
+                x: x as f32,
+                y: y as f32,
+                width: width as f32,
+                height: height as f32,
+            });
+        }
+    }
     if let Some(v) = args.get("autoTrim").and_then(|v| v.as_bool()) {
         settings.image.auto_trim_border = v;
     }
     if let Some(tol) = args.get("trimTolerance").and_then(|v| v.as_u64()) {
         settings.image.auto_trim_tolerance = (tol as u8).min(64);
     }
+    if let Some(r) = args.get("cornerRadiusPercent").and_then(|v| v.as_f64()) {
+        settings.image.corner_radius_percent = (r as f32).clamp(0.0, 50.0);
+    }
+    if let Some(v) = args.get("grayscale").and_then(|v| v.as_bool()) {
+        settings.image.grayscale = v;
+    }
+    if let Some(v) = args.get("sharpen").and_then(|v| v.as_bool()) {
+        settings.image.sharpen = v;
+    }
     if let Some(v) = args.get("autoLevels").and_then(|v| v.as_bool()) {
         settings.image.auto_levels = v;
+    }
+    if let Some(s) = args.get("blurSigma").and_then(|v| v.as_f64()) {
+        settings.image.blur_sigma = (s as f32).clamp(0.0, 20.0);
+    }
+    if let Some(p) = args.get("pixelateBlock").and_then(|v| v.as_u64()) {
+        settings.image.pixelate_block = (p as u32).min(32);
+    }
+    if let Some(vg) = args.get("vignetteStrength").and_then(|v| v.as_f64()) {
+        settings.image.vignette_strength = (vg as f32).clamp(0.0, 1.0);
+    }
+    if let Some(b) = args.get("brightness").and_then(|v| v.as_i64()) {
+        settings.image.brightness = (b as i32).clamp(-100, 100);
+    }
+    if let Some(c) = args.get("contrast").and_then(|v| v.as_f64()) {
+        settings.image.contrast = (c as f32).clamp(-100.0, 100.0);
+    }
+    if let Some(sat) = args.get("saturation").and_then(|v| v.as_f64()) {
+        settings.image.saturation = (sat as f32).clamp(-100.0, 100.0);
+    }
+    if let Some(bg) = str_arg(args, "backgroundHex") {
+        settings.image.background_hex = Some(bg.to_string());
+    }
+    if let Some(wm_val) = args.get("watermark") {
+        match parse_logo_watermark(ctx, wm_val) {
+            Ok(wm) => settings.image.watermark = wm,
+            Err(e) => return ToolCallOutcome::err(e),
+        }
     }
     if let Some(flt) = str_arg(args, "filter") {
         settings.image.filter_preset = match flt {
@@ -417,6 +535,40 @@ where
     }
     if let Some(fps) = args.get("fps").and_then(|v| v.as_u64()) {
         settings.video.max_fps = Some(fps as u8);
+    }
+    if let Some(gfps) = args.get("gifFps").and_then(|v| v.as_u64()) {
+        settings.video.gif_fps = (gfps as u8).clamp(1, 30);
+    }
+    if let Some(ab) = args.get("audioBitrateKbps").and_then(|v| v.as_u64()) {
+        settings.video.audio_bitrate_kbps = (ab as u16).clamp(32, 512);
+    }
+    if let Some(sr) = args.get("sampleRateHz").and_then(|v| v.as_u64()) {
+        settings.video.sample_rate_hz = Some(sr as u32);
+    }
+    if let Some(m) = args.get("mono").and_then(|v| v.as_bool()) {
+        settings.video.mono = m;
+    }
+    if let Some(sub) = str_arg(args, "subtitlePath") {
+        let p = PathBuf::from(sub);
+        if let Err(e) = ctx.validate_path(&p) {
+            return ToolCallOutcome::err(e);
+        }
+        settings.video.subtitle_path = Some(p);
+    }
+    if let Some(ra) = str_arg(args, "replaceAudioPath") {
+        let p = PathBuf::from(ra);
+        if let Err(e) = ctx.validate_path(&p) {
+            return ToolCallOutcome::err(e);
+        }
+        settings.video.replace_audio_path = Some(p);
+    }
+    settings.video.fade_in_secs = args.get("fadeInSecs").and_then(|v| v.as_f64()).map(|v| v as f32);
+    settings.video.fade_out_secs = args.get("fadeOutSecs").and_then(|v| v.as_f64()).map(|v| v as f32);
+    if let Some(vwm_val) = args.get("videoWatermark") {
+        match parse_logo_watermark(ctx, vwm_val) {
+            Ok(wm) => settings.video.watermark = wm,
+            Err(e) => return ToolCallOutcome::err(e),
+        }
     }
     settings.video.trim_start_secs = args.get("trimStart").and_then(|v| v.as_f64());
     settings.video.trim_end_secs = args.get("trimEnd").and_then(|v| v.as_f64());
@@ -465,16 +617,30 @@ where
     if let Some(twm_text) = str_arg(args, "textWatermark") {
         settings.image.text_watermark = Some(TextWatermarkSettings {
             text: twm_text.to_string(),
-            font_size_percent: 4.5,
-            color: "#ffffff".into(),
-            opacity: 0.75,
+            font_size_percent: args
+                .get("textWatermarkSizePercent")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(4.5) as f32,
+            color: str_arg(args, "textWatermarkColor")
+                .unwrap_or("#ffffff")
+                .to_string(),
+            opacity: args
+                .get("textWatermarkOpacity")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.75) as f32,
             margin_px: 24,
-            position: WatermarkPosition::BottomRight,
+            position: parse_watermark_pos(str_arg(args, "textWatermarkPosition")),
             tiled: args
                 .get("tiledWatermark")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
         });
+    }
+    if let Some(dpi) = args.get("pdfDpi").and_then(|v| v.as_u64()) {
+        settings.pdf.dpi = (dpi as u16).clamp(72, 300);
+    }
+    if let Some(pr) = str_arg(args, "pdfPageRange") {
+        settings.pdf.page_range = pr.to_string();
     }
     if let Some(bg_col) = str_arg(args, "removeBgColor") {
         if !bg_col.trim().is_empty() {
@@ -487,6 +653,13 @@ where
     if let Some(cap) = str_arg(args, "caption") {
         if !cap.trim().is_empty() {
             settings.image.caption_text = Some(cap.trim().to_string());
+        }
+    }
+    if let Some(duo) = args.get("duotone").and_then(|v| v.as_array()) {
+        if duo.len() == 2 {
+            if let (Some(d), Some(l)) = (duo[0].as_str(), duo[1].as_str()) {
+                settings.image.duotone = Some((d.trim().to_string(), l.trim().to_string()));
+            }
         }
     }
     if let Some(also) = args.get("alsoFormats").and_then(|v| v.as_array()) {
@@ -521,13 +694,17 @@ where
     settings.output = OutputSettings {
         output_dir: str_arg(args, "outputDir").map(PathBuf::from),
         suffix: str_arg(args, "suffix").unwrap_or("").to_string(),
+        rename_template: str_arg(args, "namingTemplate").unwrap_or("").to_string(),
+        preserve_folder_structure: args
+            .get("preserveStructure")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
         overwrite: args.get("overwrite").and_then(|v| v.as_bool()).unwrap_or(false),
         bundle_zip: args.get("bundleZip").and_then(|v| v.as_bool()).unwrap_or(false),
         trash_originals: args
             .get("trashOriginals")
             .and_then(|v| v.as_bool())
             .unwrap_or(false),
-        ..Default::default()
     };
 
     let inspected = inspect_paths(&inputs, ctx.ffmpeg_path.as_deref(), ctx.ffprobe_path.as_deref());
@@ -676,19 +853,41 @@ fn tool_pdf_ops(ctx: &McpContext, args: &Value) -> ToolCallOutcome {
     let Some(action) = str_arg(args, "action") else {
         return ToolCallOutcome::err("Missing required 'action'");
     };
-    let Some(output_str) = str_arg(args, "output") else {
-        return ToolCallOutcome::err("Missing required 'output' path");
-    };
-    let output = PathBuf::from(output_str);
-    if let Err(e) = ctx.validate_path(&output) {
-        return ToolCallOutcome::err(e);
-    }
     if let Some(inp) = str_arg(args, "input") {
         if let Err(e) = ctx.validate_path(Path::new(inp)) {
             return ToolCallOutcome::err(e);
         }
     }
     if let Err(e) = ctx.validate_paths(&path_list_arg(args, "inputs")) {
+        return ToolCallOutcome::err(e);
+    }
+
+    if action == "search" {
+        let Some(input) = str_arg(args, "input").map(PathBuf::from) else {
+            return ToolCallOutcome::err("'input' is required for search");
+        };
+        let Some(query) = str_arg(args, "text") else {
+            return ToolCallOutcome::err("'text' query is required for search");
+        };
+        let case_sensitive = args
+            .get("caseSensitive")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        return match wandel_core::search_pdf_text(&input, query, case_sensitive) {
+            Ok(matches) => ToolCallOutcome::ok(json!({
+                "query": query,
+                "matchPages": matches.len(),
+                "matches": matches
+            })),
+            Err(e) => ToolCallOutcome::err(e.to_string()),
+        };
+    }
+
+    let Some(output_str) = str_arg(args, "output") else {
+        return ToolCallOutcome::err("Missing required 'output' path");
+    };
+    let output = PathBuf::from(output_str);
+    if let Err(e) = ctx.validate_path(&output) {
         return ToolCallOutcome::err(e);
     }
 
@@ -831,13 +1030,61 @@ fn tool_pdf_ops(ctx: &McpContext, args: &Value) -> ToolCallOutcome {
             wandel_core::set_pdf_metadata(
                 &input,
                 &output,
-                str_arg(args, "text"),
+                str_arg(args, "title").or_else(|| str_arg(args, "text")),
                 str_arg(args, "author"),
                 str_arg(args, "subject"),
                 str_arg(args, "keywords"),
             )
             .map(|bytes| json!({ "output": output_str, "bytes": bytes }))
             .map_err(|e| e.to_string())
+        }
+        "organize" => {
+            let Some(input) = str_arg(args, "input").map(PathBuf::from) else {
+                return ToolCallOutcome::err("'input' is required for organize");
+            };
+            let Some(plan_arr) = args.get("plan").and_then(|v| v.as_array()) else {
+                return ToolCallOutcome::err("'plan' array of {sourcePage, rotate} is required for organize");
+            };
+            let mut plan = Vec::with_capacity(plan_arr.len());
+            for item in plan_arr {
+                let Some(sp) = item.get("sourcePage").and_then(|v| v.as_u64()) else {
+                    return ToolCallOutcome::err("Each plan item requires integer 'sourcePage' >= 1");
+                };
+                let rot = item.get("rotate").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                plan.push(wandel_core::PdfPagePlan {
+                    page: sp as usize,
+                    rotation_delta: rot,
+                });
+            }
+            wandel_core::organize_pdf_pages(&input, &output, &plan)
+                .map(|bytes| json!({ "output": output_str, "pages": plan.len(), "bytes": bytes }))
+                .map_err(|e| e.to_string())
+        }
+        "remove_blank_pages" => {
+            let Some(input) = str_arg(args, "input").map(PathBuf::from) else {
+                return ToolCallOutcome::err("'input' is required for remove_blank_pages");
+            };
+            let thresh = args.get("threshold").and_then(|v| v.as_f64()).unwrap_or(0.995) as f32;
+            wandel_core::remove_blank_pdf_pages(&input, &output, thresh)
+                .map(|(kept, removed, bytes)| {
+                    json!({ "output": output_str, "keptPages": kept, "removedPages": removed, "bytes": bytes })
+                })
+                .map_err(|e| e.to_string())
+        }
+        "interleave" => {
+            let inputs = path_list_arg(args, "inputs");
+            if inputs.len() < 2 {
+                return ToolCallOutcome::err("'inputs' requires 2 PDF paths [odd, even] for interleave");
+            }
+            let reverse_even = args
+                .get("reverseEven")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            wandel_core::interleave_pdfs(&inputs[0], &inputs[1], reverse_even, &output)
+                .map(|(pages, bytes)| {
+                    json!({ "output": output_str, "pages": pages, "bytes": bytes, "reverseEven": reverse_even })
+                })
+                .map_err(|e| e.to_string())
         }
         other => Err(format!("Unknown PDF action '{}'", other)),
     };
@@ -1026,8 +1273,13 @@ fn tool_image_tools(ctx: &McpContext, args: &Value) -> ToolCallOutcome {
             let Some(out) = str_arg(args, "output").map(PathBuf::from) else {
                 return ToolCallOutcome::err("'output' GIF path is required");
             };
-            let delay_ms = args.get("sizePx").and_then(|v| v.as_u64()).unwrap_or(300) as u32;
-            wandel_core::create_animated_gif(&inputs, &out, delay_ms, None, ctx.ffmpeg_path.as_deref())
+            let delay_ms = args
+                .get("delayMs")
+                .or_else(|| args.get("sizePx"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(300) as u32;
+            let max_w = args.get("maxWidth").and_then(|v| v.as_u64()).map(|v| v as u32);
+            wandel_core::create_animated_gif(&inputs, &out, delay_ms, max_w, ctx.ffmpeg_path.as_deref())
                 .map(|bytes| json!({ "output": out, "frames": inputs.len(), "bytes": bytes }))
                 .map_err(|e| e.to_string())
         }
@@ -1047,10 +1299,15 @@ fn tool_image_tools(ctx: &McpContext, args: &Value) -> ToolCallOutcome {
             let Some(out) = str_arg(args, "output").map(PathBuf::from) else {
                 return ToolCallOutcome::err("'output' path is required");
             };
-            let vertical = str_arg(args, "content")
+            let vertical = str_arg(args, "direction")
+                .or_else(|| str_arg(args, "content"))
                 .map(|s| !s.eq_ignore_ascii_case("horizontal"))
                 .unwrap_or(true);
-            let gap = args.get("padding").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            let gap = args
+                .get("padding")
+                .or_else(|| args.get("gapPx"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32;
             let bg = str_arg(args, "lightHex").unwrap_or("#ffffff");
             wandel_core::stitch_images(
                 &inputs,
@@ -1071,6 +1328,26 @@ fn tool_image_tools(ctx: &McpContext, args: &Value) -> ToolCallOutcome {
             let w = args.get("sizePx").and_then(|v| v.as_u64()).unwrap_or(24) as u32;
             wandel_core::generate_lqip(&input, w, ctx.ffmpeg_path.as_deref())
                 .map(|exp| serde_json::to_value(exp).unwrap_or_default())
+                .map_err(|e| e.to_string())
+        }
+        "diff" => {
+            let inputs = path_list_arg(args, "inputs");
+            if inputs.len() < 2 {
+                return ToolCallOutcome::err("'inputs' requires 2 image paths for diff");
+            }
+            let Some(out) = str_arg(args, "output").map(PathBuf::from) else {
+                return ToolCallOutcome::err("'output' PNG path is required");
+            };
+            let threshold = args.get("threshold").and_then(|v| v.as_u64()).unwrap_or(10).min(255) as u8;
+            wandel_core::create_pixel_diff(&inputs[0], &inputs[1], &out, threshold, ctx.ffmpeg_path.as_deref())
+                .map(|r| json!({
+                    "output": r.output_path,
+                    "width": r.width,
+                    "height": r.height,
+                    "changedPixels": r.changed_pixels,
+                    "totalPixels": r.total_pixels,
+                    "diffPercent": r.diff_percent
+                }))
                 .map_err(|e| e.to_string())
         }
         other => Err(format!("Unknown image action '{}'", other)),

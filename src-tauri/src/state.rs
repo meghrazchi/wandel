@@ -59,9 +59,19 @@ pub fn resolve_sidecar_binary(name: &str) -> Option<PathBuf> {
     }
 
     // Fallback to PATH
-    let path_var = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path_var) {
-        let candidate = dir.join(format!("{}{}", name, exe_ext));
+    if let Some(path_var) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            let candidate = dir.join(format!("{}{}", name, exe_ext));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    // Common Homebrew / system paths (important when launched from Claude Desktop with minimal PATH)
+    #[cfg(unix)]
+    for dir in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"] {
+        let candidate = PathBuf::from(dir).join(name);
         if candidate.is_file() {
             return Some(candidate);
         }
