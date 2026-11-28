@@ -155,7 +155,7 @@ jobs:
 
       - name: Generate LLVM coverage report
         run: |
-          cargo llvm-cov --workspace --lcov --output-path lcov.info
+          cargo llvm-cov -p wandel-core -p wandel-mcp -p wandel-cli --lcov --output-path lcov.info
           echo "### Rust Coverage Summary" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           cargo llvm-cov report --summary-only >> "$GITHUB_STEP_SUMMARY"

@@ -556,3 +556,60 @@ fn v35_mcp_full_engine_parity_and_schema() {
     assert!(meta_pdf.exists());
     assert!(diff_png.exists());
 }
+
+#[test]
+fn v35_mcp_inline_base64_conversion() {
+    use base64::Engine as _;
+
+    // Encode a small 24x24 PNG in memory (simulating a chat-attached image with zero disk path)
+    let img = DynamicImage::ImageRgba8(ImageBuffer::from_pixel(24, 24, Rgba([79, 70, 229, 255])));
+    let mut png_bytes = Vec::new();
+    img.write_to(&mut Cursor::new(&mut png_bytes), image::ImageFormat::Png)
+        .unwrap();
+    let data_url = format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(&png_bytes)
+    );
+
+    let req = json!({
+        "jsonrpc":"2.0",
+        "id":1,
+        "method":"tools/call",
+        "params":{
+            "name":"wandel_convert",
+            "arguments":{
+                "inputBase64": data_url,
+                "inputName": "chat_screenshot.png",
+                "to": "webp",
+                "quality": 85
+            }
+        }
+    });
+
+    let server = McpServer::new(None, None);
+    let out_buf = Arc::new(Mutex::new(Vec::new()));
+    server
+        .run_io(
+            Cursor::new(serde_json::to_string(&req).unwrap().into_bytes()),
+            SharedBuf(Arc::clone(&out_buf)),
+        )
+        .unwrap();
+
+    let raw_out = String::from_utf8(out_buf.lock().unwrap().clone()).unwrap();
+    let resp: Value = serde_json::from_str(raw_out.trim()).unwrap();
+    assert_eq!(resp["result"]["isError"], false, "Response: {}", resp);
+
+    let payload_text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    let payload: Value = serde_json::from_str(payload_text).unwrap();
+    let first = &payload["completed"][0];
+    assert_eq!(first["mimeType"], "image/webp");
+    let out_b64 = first["base64"].as_str().unwrap();
+    let out_url = first["dataUrl"].as_str().unwrap();
+    assert!(out_url.starts_with("data:image/webp;base64,"));
+
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(out_b64.as_bytes())
+        .unwrap();
+    let loaded = image::load_from_memory(&decoded).unwrap();
+    assert_eq!((loaded.width(), loaded.height()), (24, 24));
+}

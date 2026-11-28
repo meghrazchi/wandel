@@ -119,7 +119,7 @@ pub fn tool_definitions() -> Value {
         },
         {
             "name": "wandel_convert",
-            "description": "Batch-convert images, videos, audio, and PDFs in parallel across all CPU cores and GPU hardware encoders. Pass multiple files or directories in a single call for maximum throughput.",
+            "description": "Batch-convert images, videos, audio, and PDFs in parallel across all CPU cores and GPU hardware encoders. Accepts local file/folder paths via 'inputs', OR inline chat-attached files via 'inputBase64' (raw base64 or data URL) with optional 'inputName' and 'returnBase64: true' so chat attachments can be converted without disk access.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -127,7 +127,20 @@ pub fn tool_definitions() -> Value {
                         "type": "array",
                         "items": { "type": "string" },
                         "minItems": 1,
-                        "description": "Absolute file or folder paths to convert."
+                        "description": "Absolute file or folder paths to convert (optional if inputBase64 is provided)."
+                    },
+                    "inputBase64": {
+                        "type": "string",
+                        "description": "Optional base64-encoded file bytes or data URL (e.g. 'data:image/png;base64,...') for converting chat-attached images or files without a disk path."
+                    },
+                    "inputName": {
+                        "type": "string",
+                        "description": "Optional filename with extension when using inputBase64 (e.g. 'screenshot.png'). Inferred from data URL MIME type if omitted."
+                    },
+                    "returnBase64": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Include base64 and dataUrl of converted outputs in the response (auto-enabled when using inputBase64 without outputDir)."
                     },
                     "to": {
                         "type": "string",
@@ -277,7 +290,6 @@ pub fn tool_definitions() -> Value {
                     },
                     "dryRun": { "type": "boolean", "default": false, "description": "Preview planned outputs without writing or modifying any files." }
                 },
-                "required": ["inputs"],
                 "additionalProperties": false
             },
             "annotations": {

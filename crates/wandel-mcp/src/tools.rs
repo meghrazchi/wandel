@@ -319,6 +319,102 @@ fn parse_logo_watermark(
     }))
 }
 
+fn mime_for_ext(ext: &str) -> &'static str {
+    match ext.to_ascii_lowercase().as_str() {
+        "webp" => "image/webp",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "avif" => "image/avif",
+        "jxl" => "image/jxl",
+        "heic" | "heif" => "image/heic",
+        "gif" => "image/gif",
+        "tiff" | "tif" => "image/tiff",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
+        "svg" => "image/svg+xml",
+        "pdf" => "application/pdf",
+        "mp4" | "m4v" => "video/mp4",
+        "webm" => "video/webm",
+        "mov" => "video/quicktime",
+        "mkv" => "video/x-matroska",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "aac" | "m4a" => "audio/mp4",
+        "flac" => "audio/flac",
+        "ogg" | "opus" => "audio/ogg",
+        _ => "application/octet-stream",
+    }
+}
+
+fn ext_from_mime(mime: &str) -> &'static str {
+    match mime.trim().to_ascii_lowercase().as_str() {
+        "image/png" => "png",
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        "image/avif" => "avif",
+        "image/jxl" => "jxl",
+        "image/heic" | "image/heif" => "heic",
+        "image/bmp" => "bmp",
+        "image/tiff" => "tiff",
+        "image/svg+xml" => "svg",
+        "application/pdf" => "pdf",
+        _ => "png",
+    }
+}
+
+fn decode_inline_input(
+    raw_b64: &str,
+    input_name: Option<&str>,
+) -> Result<(PathBuf, PathBuf), String> {
+    use base64::Engine as _;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(1);
+
+    let (mime_ext, payload) = if let Some(rest) = raw_b64.strip_prefix("data:") {
+        if let Some((meta, data)) = rest.split_once(',') {
+            let mime = meta.split(';').next().unwrap_or("image/png");
+            (Some(ext_from_mime(mime)), data)
+        } else {
+            (None, raw_b64)
+        }
+    } else {
+        (None, raw_b64)
+    };
+
+    let cleaned: String = payload.chars().filter(|c| !c.is_whitespace()).collect();
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(cleaned.as_bytes())
+        .map_err(|e| format!("Invalid inputBase64 data: {}", e))?;
+    if bytes.is_empty() {
+        return Err("inputBase64 decoded to 0 bytes".into());
+    }
+
+    let file_name = match input_name.filter(|s| !s.trim().is_empty()) {
+        Some(n) => {
+            let base = Path::new(n)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("attachment.png");
+            if Path::new(base).extension().is_some() {
+                base.to_string()
+            } else {
+                format!("{}.{}", base, mime_ext.unwrap_or("png"))
+            }
+        }
+        None => format!("attachment.{}", mime_ext.unwrap_or("png")),
+    };
+
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp_dir = std::env::temp_dir().join(format!("wandel_mcp_{}_{}", std::process::id(), seq));
+    std::fs::create_dir_all(&tmp_dir)
+        .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+    let tmp_file = tmp_dir.join(file_name);
+    std::fs::write(&tmp_file, &bytes)
+        .map_err(|e| format!("Failed to write temp input file: {}", e))?;
+    Ok((tmp_dir, tmp_file))
+}
+
 fn tool_convert<F>(
     ctx: &McpContext,
     args: &Value,
@@ -328,18 +424,50 @@ fn tool_convert<F>(
 where
     F: Fn(f64, f64, &str) + Send + Sync,
 {
-    let inputs = path_list_arg(args, "inputs");
+    let mut inputs = path_list_arg(args, "inputs");
+    let mut inline_temp_dir: Option<PathBuf> = None;
+    let has_inline = str_arg(args, "inputBase64").is_some();
+
+    if let Some(raw_b64) = str_arg(args, "inputBase64") {
+        match decode_inline_input(raw_b64, str_arg(args, "inputName")) {
+            Ok((tmp_dir, tmp_file)) => {
+                inputs.push(tmp_file);
+                inline_temp_dir = Some(tmp_dir);
+            }
+            Err(e) => return ToolCallOutcome::err(e),
+        }
+    }
+
     if inputs.is_empty() {
-        return ToolCallOutcome::err("'inputs' must contain at least one file or directory path");
+        return ToolCallOutcome::err(
+            "Provide at least one path in 'inputs' or an inline file via 'inputBase64'",
+        );
     }
-    if let Err(e) = ctx.validate_paths(&inputs) {
-        return ToolCallOutcome::err(e);
-    }
-    if let Some(out_dir) = str_arg(args, "outputDir") {
-        if let Err(e) = ctx.validate_path(Path::new(out_dir)) {
+    if !has_inline {
+        if let Err(e) = ctx.validate_paths(&inputs) {
+            return ToolCallOutcome::err(e);
+        }
+    } else if inputs.len() > 1 {
+        if let Err(e) = ctx.validate_paths(&inputs[..inputs.len() - 1]) {
+            if let Some(dir) = inline_temp_dir.take() {
+                let _ = std::fs::remove_dir_all(dir);
+            }
             return ToolCallOutcome::err(e);
         }
     }
+    if let Some(out_dir) = str_arg(args, "outputDir") {
+        if let Err(e) = ctx.validate_path(Path::new(out_dir)) {
+            if let Some(dir) = inline_temp_dir.take() {
+                let _ = std::fs::remove_dir_all(dir);
+            }
+            return ToolCallOutcome::err(e);
+        }
+    }
+
+    let return_base64 = args
+        .get("returnBase64")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(has_inline && str_arg(args, "outputDir").is_none());
 
     let mut settings = match str_arg(args, "preset") {
         Some("web" | "web_optimized") => Preset::WebOptimized.to_settings(),
@@ -834,9 +962,36 @@ where
         },
     );
 
-    let comp = completed_items.lock().map(|g| g.clone()).unwrap_or_default();
+    let mut comp = completed_items.lock().map(|g| g.clone()).unwrap_or_default();
     let fail = failed_items.lock().map(|g| g.clone()).unwrap_or_default();
     let sum = summary.lock().map(|g| g.clone()).unwrap_or_else(|_| json!({}));
+
+    if return_base64 {
+        use base64::Engine as _;
+        for item in &mut comp {
+            if let Some(out_path) = item.get("outputPath").and_then(|v| v.as_str()).map(String::from)
+            {
+                if let Ok(bytes) = std::fs::read(&out_path) {
+                    let ext = Path::new(&out_path)
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("bin");
+                    let mime = mime_for_ext(ext);
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                    let data_url = format!("data:{};base64,{}", mime, b64);
+                    if let Some(obj) = item.as_object_mut() {
+                        obj.insert("mimeType".into(), json!(mime));
+                        obj.insert("base64".into(), json!(b64));
+                        obj.insert("dataUrl".into(), json!(data_url));
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(dir) = inline_temp_dir {
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     let is_error = comp.is_empty() && !fail.is_empty();
     ToolCallOutcome {
