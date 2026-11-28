@@ -95,10 +95,12 @@ jobs:
             [[ -f "${REAL_FFPROBE}" ]] || REAL_FFPROBE="$(which ffprobe)"
             cp "${REAL_FFMPEG}" "src-tauri/binaries/ffmpeg-${TARGET_TRIPLE}.exe"
             cp "${REAL_FFPROBE}" "src-tauri/binaries/ffprobe-${TARGET_TRIPLE}.exe"
+            touch "src-tauri/binaries/wandel-cli-${TARGET_TRIPLE}.exe"
           else
             cp "$(which ffmpeg)" "src-tauri/binaries/ffmpeg-${TARGET_TRIPLE}"
             cp "$(which ffprobe)" "src-tauri/binaries/ffprobe-${TARGET_TRIPLE}"
-            chmod +x "src-tauri/binaries/ffmpeg-${TARGET_TRIPLE}" "src-tauri/binaries/ffprobe-${TARGET_TRIPLE}"
+            touch "src-tauri/binaries/wandel-cli-${TARGET_TRIPLE}"
+            chmod +x "src-tauri/binaries/ffmpeg-${TARGET_TRIPLE}" "src-tauri/binaries/ffprobe-${TARGET_TRIPLE}" "src-tauri/binaries/wandel-cli-${TARGET_TRIPLE}"
           fi
 
       - name: Build frontend dist for Tauri context
@@ -147,7 +149,8 @@ jobs:
           mkdir -p src-tauri/binaries
           cp "$(which ffmpeg)" "src-tauri/binaries/ffmpeg-${TARGET_TRIPLE}"
           cp "$(which ffprobe)" "src-tauri/binaries/ffprobe-${TARGET_TRIPLE}"
-          chmod +x "src-tauri/binaries/ffmpeg-${TARGET_TRIPLE}" "src-tauri/binaries/ffprobe-${TARGET_TRIPLE}"
+          touch "src-tauri/binaries/wandel-cli-${TARGET_TRIPLE}"
+          chmod +x "src-tauri/binaries/ffmpeg-${TARGET_TRIPLE}" "src-tauri/binaries/ffprobe-${TARGET_TRIPLE}" "src-tauri/binaries/wandel-cli-${TARGET_TRIPLE}"
           npm ci && npm run build
 
       - name: Generate LLVM coverage report

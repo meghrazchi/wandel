@@ -1,7 +1,7 @@
 {
   "name": "wandel",
   "private": true,
-  "version": "3.5.0",
+  "version": "3.5.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "tauri": "tauri",
-    "build:mac:signed": "bash -c 'set -a && [ -f .env ] && source .env && set +a && npx tauri build'"
+    "stage:cli": "bash -c 'TARGET=$(rustc -vV | awk \"/host:/ { print \\$2 }\") && cargo build --release -p wandel-cli && mkdir -p src-tauri/binaries && cp target/release/wandel src-tauri/binaries/wandel-cli-${TARGET} && chmod +x src-tauri/binaries/wandel-cli-${TARGET}'",
+    "build:mac:signed": "bash -c 'set -a && [ -f .env ] && source .env && set +a && npm run stage:cli && npx tauri build'"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.5.0",

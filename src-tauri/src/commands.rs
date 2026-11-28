@@ -772,12 +772,19 @@ fn resolve_headless_cli_binary() -> Option<PathBuf> {
         }
     };
 
-    // 1. Sibling `wandel` CLI next to the desktop binary (if distinct from desktop GUI)
+    // 1. Sibling `wandel-cli` or `wandel` next to the desktop binary (if distinct from desktop GUI)
+    let sidecar_name = if cfg!(windows) {
+        "wandel-cli.exe"
+    } else {
+        "wandel-cli"
+    };
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let sibling = dir.join(exe_name);
-            if is_distinct_file(&sibling) {
-                return Some(sibling);
+            for name in [sidecar_name, exe_name] {
+                let sibling = dir.join(name);
+                if is_distinct_file(&sibling) {
+                    return Some(sibling);
+                }
             }
         }
     }

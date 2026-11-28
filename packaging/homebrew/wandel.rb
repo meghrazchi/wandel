@@ -1,7 +1,7 @@
 cask "wandel" do
   arch arm: "aarch64", intel: "x64"
 
-  version "3.5.0"
+  version "3.5.1"
   sha256 :no_check
 
   url "https://github.com/meghrazchi/wandel/releases/download/v#{version}/Wandel_#{version}_#{arch}.dmg",
@@ -16,6 +16,7 @@ cask "wandel" do
   end
 
   app "Wandel.app"
+  binary "#{appdir}/Wandel.app/Contents/MacOS/wandel-cli", target: "wandel"
 
   postflight do
     system_command "/usr/bin/xattr",

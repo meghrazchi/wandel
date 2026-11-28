@@ -67,6 +67,48 @@ pub fn try_run_headless_mcp() -> bool {
     true
 }
 
+#[cfg(all(desktop, unix))]
+fn ensure_cli_symlink() {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let Some(dir) = exe.parent() else {
+        return;
+    };
+    let bundled_cli = dir.join("wandel-cli");
+    if !bundled_cli.is_file() {
+        return;
+    }
+    if let (Ok(cur), Ok(cli)) = (std::fs::canonicalize(&exe), std::fs::canonicalize(&bundled_cli)) {
+        if cur == cli {
+            return;
+        }
+    }
+    let Some(home) = std::env::var_os("HOME") else {
+        return;
+    };
+    let local_bin = std::path::PathBuf::from(home).join(".local").join("bin");
+    if std::fs::create_dir_all(&local_bin).is_err() {
+        return;
+    }
+    let link_path = local_bin.join("wandel");
+    if let Ok(meta) = std::fs::symlink_metadata(&link_path) {
+        if meta.file_type().is_symlink() {
+            let should_replace = !link_path.exists()
+                || std::fs::read_link(&link_path)
+                    .ok()
+                    .map(|p| p.to_string_lossy().contains("Wandel.app"))
+                    .unwrap_or(false);
+            if should_replace {
+                let _ = std::fs::remove_file(&link_path);
+                let _ = std::os::unix::fs::symlink(&bundled_cli, &link_path);
+            }
+        }
+        return;
+    }
+    let _ = std::os::unix::fs::symlink(&bundled_cli, &link_path);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let ffmpeg_path = resolve_sidecar_binary("ffmpeg");
@@ -81,6 +123,9 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder
         .setup(|app| {
+            #[cfg(unix)]
+            ensure_cli_symlink();
+
             let show_item = MenuItem::with_id(app, "show", "Open Wandel", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit Wandel", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;

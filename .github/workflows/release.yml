@@ -42,14 +42,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Stage FFmpeg sidecars & run tests
+      - name: Stage FFmpeg & CLI sidecars & run tests
         shell: bash
         run: |
           TARGET_TRIPLE="$(rustc -vV | awk '/host:/ { print $2 }')"
           mkdir -p src-tauri/binaries
           cp "$(which ffmpeg)" "src-tauri/binaries/ffmpeg-${TARGET_TRIPLE}"
           cp "$(which ffprobe)" "src-tauri/binaries/ffprobe-${TARGET_TRIPLE}"
-          chmod +x "src-tauri/binaries/ffmpeg-${TARGET_TRIPLE}" "src-tauri/binaries/ffprobe-${TARGET_TRIPLE}"
+          touch "src-tauri/binaries/wandel-cli-${TARGET_TRIPLE}"
+          chmod +x "src-tauri/binaries/ffmpeg-${TARGET_TRIPLE}" "src-tauri/binaries/ffprobe-${TARGET_TRIPLE}" "src-tauri/binaries/wandel-cli-${TARGET_TRIPLE}"
           npm ci
           npm run test:coverage
           npm run build
@@ -154,6 +155,17 @@ jobs:
           $binDir = (Get-ChildItem -Path "$env:TEMP\ffmpeg-dl" -Directory | Select-Object -First 1).FullName + "\bin"
           Copy-Item "$binDir\ffmpeg.exe" "src-tauri/binaries/ffmpeg-${{ matrix.target }}.exe"
           Copy-Item "$binDir\ffprobe.exe" "src-tauri/binaries/ffprobe-${{ matrix.target }}.exe"
+
+      - name: Build & stage headless Wandel CLI sidecar
+        shell: bash
+        run: |
+          cargo build --release -p wandel-cli --target ${{ matrix.target }}
+          if [[ "${RUNNER_OS}" == "Windows" ]]; then
+            cp "target/${{ matrix.target }}/release/wandel.exe" "src-tauri/binaries/wandel-cli-${{ matrix.target }}.exe"
+          else
+            cp "target/${{ matrix.target }}/release/wandel" "src-tauri/binaries/wandel-cli-${{ matrix.target }}"
+            chmod +x "src-tauri/binaries/wandel-cli-${{ matrix.target }}"
+          fi
 
       - name: Install frontend dependencies
         run: npm ci
